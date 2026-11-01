@@ -7,11 +7,17 @@ use std::sync::Mutex;
 
 use base64::Engine;
 use serde::Serialize;
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT, SIZE};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE,
+};
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
-    DeleteObject, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ,
+    DeleteObject, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HGDIOBJ,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+};
+use windows::Win32::System::Registry::{
+    HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW,
 };
 use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
@@ -24,13 +30,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, VIRTUAL_KEY, VK_A, VK_LWIN, VK_N,
 };
 use windows::Win32::UI::Shell::{
-    IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
-    ShellExecuteW,
+    IShellItemImageFactory, QUNS_RUNNING_D3D_FULL_SCREEN, SHCreateItemFromParsingName,
+    SHQueryUserNotificationState, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GW_OWNER, GWL_EXSTYLE,
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SPI_GETWORKAREA, SW_HIDE,
+    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
+    MONITORINFOF_PRIMARY, SPI_GETWORKAREA, SW_HIDE,
     SW_MINIMIZE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetForegroundWindow, SetWindowLongPtrW, ShowWindow, ShowWindowAsync, SystemParametersInfoW,
     WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
@@ -39,6 +46,17 @@ use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, w};
 
 const ICON_SIZE: i32 = 128;
 const SHELL_CLASSES: [&str; 3] = ["Progman", "WorkerW", "Shell_TrayWnd"];
+/// Shell surfaces that can span the screen, such as the desktop and Alt+Tab.
+const NOT_FULLSCREEN_APPS: [&str; 6] = [
+    "Progman",
+    "WorkerW",
+    "Shell_TrayWnd",
+    "XamlExplorerHostIslandWindow",
+    "MultitaskingViewFrame",
+    "Windows.UI.Core.CoreWindow",
+];
+const AUTOSTART_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
+const AUTOSTART_VALUE: PCWSTR = w!("Dock JM");
 
 static ICON_LOCK: Mutex<()> = Mutex::new(());
 
@@ -92,6 +110,73 @@ pub fn set_dock_style(hwnd: isize, click_through: bool) {
         if style != current {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
         }
+    }
+}
+
+/// Adds or removes the program from the apps Windows opens at sign-in.
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    let result = unsafe {
+        if enabled {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let command: Vec<u16> = format!("\"{}\"", exe.display())
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                AUTOSTART_KEY,
+                AUTOSTART_VALUE,
+                REG_SZ.0,
+                Some(command.as_ptr() as *const c_void),
+                (command.len() * size_of::<u16>()) as u32,
+            )
+        } else {
+            RegDeleteKeyValueW(HKEY_CURRENT_USER, AUTOSTART_KEY, AUTOSTART_VALUE)
+        }
+    };
+    // Removing an entry that is already gone is not a failure.
+    if result == ERROR_SUCCESS || (!enabled && result == ERROR_FILE_NOT_FOUND) {
+        Ok(())
+    } else {
+        Err(format!("Não foi possível alterar o início automático ({})", result.0))
+    }
+}
+
+/// True when the foreground app takes over the whole primary monitor, where
+/// the dock lives. A maximized window also covers it when the taskbar is
+/// hidden, but that is a normal window the dock should stay over.
+pub fn is_fullscreen_app_active(own_pid: u32) -> bool {
+    unsafe {
+        if SHQueryUserNotificationState().is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN) {
+            return true;
+        }
+
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_invalid()
+            || window_pid(hwnd) == own_pid
+            || IsZoomed(hwnd).as_bool()
+            || NOT_FULLSCREEN_APPS.contains(&window_class(hwnd).as_str())
+        {
+            return false;
+        }
+
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let mut rect = RECT::default();
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if !GetMonitorInfoW(monitor, &mut info).as_bool()
+            || info.dwFlags & MONITORINFOF_PRIMARY == 0
+            || GetWindowRect(hwnd, &mut rect).is_err()
+        {
+            return false;
+        }
+        let screen = info.rcMonitor;
+        rect.left <= screen.left
+            && rect.top <= screen.top
+            && rect.right >= screen.right
+            && rect.bottom >= screen.bottom
     }
 }
 

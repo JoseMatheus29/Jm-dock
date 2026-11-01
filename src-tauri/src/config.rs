@@ -11,6 +11,7 @@ pub struct DockConfig {
     pub show_start_button: bool,
     pub hide_taskbar: bool,
     pub auto_hide: bool,
+    pub start_with_windows: bool,
     pub icon_size: f64,
     pub magnification: f64,
     pub alignment: String,
@@ -19,6 +20,8 @@ pub struct DockConfig {
     pub saved_themes: Vec<SavedTheme>,
     pub custom_css: String,
     pub apps: Vec<PinnedApp>,
+    /// Position of open apps that are not pinned, kept while they are closed.
+    pub app_order: Vec<String>,
     pub widgets: Vec<WidgetSetting>,
     pub clock: ClockOptions,
 }
@@ -105,6 +108,7 @@ impl Default for DockConfig {
             show_start_button: true,
             hide_taskbar: false,
             auto_hide: false,
+            start_with_windows: false,
             icon_size: 52.0,
             magnification: 1.6,
             alignment: "center".into(),
@@ -113,6 +117,7 @@ impl Default for DockConfig {
             saved_themes: Vec::new(),
             custom_css: String::new(),
             apps: default_apps(),
+            app_order: Vec::new(),
             widgets: default_widgets(),
             clock: ClockOptions::default(),
         }

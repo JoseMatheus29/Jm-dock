@@ -412,6 +412,13 @@ try {
       refreshControls();
     }
   });
+  // Icons dragged on the dock must not be undone by the next save from here.
+  listen<DockConfig>("dock-order-changed", ({ payload }) => {
+    config.apps = payload.apps;
+    config.appOrder = payload.appOrder;
+    renderApps();
+    refreshRunning().catch(showError);
+  });
 } catch (error) {
   // Saving now would overwrite the file the user needs to repair.
   form.hidden = true;

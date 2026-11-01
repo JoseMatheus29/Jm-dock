@@ -103,6 +103,20 @@ body {
   fill: var(--dot-active);
 }
 
+#dock.dragging .icon {
+  transition: transform 0.12s ease-out;
+}
+
+#dock.dragging .icon.dragged {
+  z-index: 1;
+  cursor: grabbing;
+  transition: none;
+}
+
+#dock.dragging .label {
+  opacity: 0;
+}
+
 .icon.launching img,
 .icon.launching .fallback {
   animation: launch 0.5s ease-out;

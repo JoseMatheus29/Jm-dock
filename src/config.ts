@@ -30,6 +30,7 @@ export interface DockConfig {
   showStartButton: boolean;
   hideTaskbar: boolean;
   autoHide: boolean;
+  startWithWindows: boolean;
   iconSize: number;
   magnification: number;
   alignment: Alignment;
@@ -38,6 +39,7 @@ export interface DockConfig {
   savedThemes: SavedTheme[];
   customCss: string;
   apps: PinnedApp[];
+  appOrder: string[];
   widgets: WidgetSetting[];
   clock: ClockOptions;
 }

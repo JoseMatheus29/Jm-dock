@@ -17,7 +17,7 @@ use tauri::{
 };
 use windows::Win32::Foundation::RECT;
 
-use config::{DockConfig, WidgetId};
+use config::{DockConfig, PinnedApp, WidgetId};
 use widgets::WidgetData;
 use win::AppWindow;
 
@@ -25,6 +25,8 @@ const CURSOR_POLL: Duration = Duration::from_millis(40);
 /// How many cursor polls pass between window list refreshes (about 500 ms).
 const TICKS_PER_SNAPSHOT: u32 = 12;
 const SETTINGS_WINDOW: &str = "settings";
+const DOCK_WINDOW: &str = "main";
+const DOCK_RETRY: Duration = Duration::from_secs(1);
 /// Grace period for reaching an auto-hidden dock after touching the screen edge.
 const DOCK_HIDE_DELAY: Duration = Duration::from_millis(500);
 const WIDGET_POLL: Duration = Duration::from_millis(100);
@@ -57,6 +59,8 @@ struct DockState {
     widget_data: Mutex<WidgetData>,
     /// Asks the widget thread to read again without waiting for its next turn.
     widgets_stale: AtomicBool,
+    dragging: AtomicBool,
+    start_with_windows: AtomicBool,
 }
 
 #[tauri::command]
@@ -67,8 +71,34 @@ fn get_config(app: AppHandle) -> Result<DockConfig, String> {
 #[tauri::command]
 fn save_config(config: DockConfig, app: AppHandle) -> Result<(), String> {
     let config = config::store(&app, config)?;
+    let state = app.state::<DockState>();
+    let autostart = config.start_with_windows;
+    if state.start_with_windows.swap(autostart, Ordering::Relaxed) != autostart {
+        win::set_autostart(autostart)?;
+    }
     apply_config(&app, config);
     Ok(())
+}
+
+/// Stores an order set by dragging icons. It reads the file again so a change
+/// made in the settings window at the same time is not lost.
+#[tauri::command]
+fn save_dock_order(
+    apps: Vec<PinnedApp>,
+    app_order: Vec<String>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let mut config = config::load(&app)?;
+    config.apps = apps;
+    config.app_order = app_order;
+    config::save(&app, &config)?;
+    let _ = app.emit("dock-order-changed", config);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_dragging(dragging: bool, state: State<DockState>) {
+    state.dragging.store(dragging, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -321,25 +351,23 @@ fn spawn_widget_poller(app: AppHandle) {
 
 /// Background loop that does what the page cannot: a click-through window
 /// receives no mouse events, so the cursor has to be tracked from here.
-fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
+fn spawn_monitor(app: AppHandle) {
     thread::spawn(move || {
-        let Ok(hwnd) = window.hwnd().map(|hwnd| hwnd.0 as isize) else {
-            return;
-        };
-        win::set_dock_style(hwnd, true);
-
         let own_pid = std::process::id();
+        let mut dock: Option<(WebviewWindow, isize)> = None;
         let mut shown = false;
         let mut hovering = false;
-        let mut tick = 0;
+        let mut tick = 0u32;
         let mut active = None;
         let mut placed = None;
+        let mut fullscreen = false;
         let mut auto_hide_state = AutoHide::default();
         // Starts true so a taskbar left hidden by a killed dock comes back.
         let mut taskbar_hidden = true;
 
         loop {
             thread::sleep(CURSOR_POLL);
+            tick = tick.wrapping_add(1);
 
             let state = app.state::<DockState>();
             let enabled = state.enabled.load(Ordering::Relaxed);
@@ -354,6 +382,46 @@ fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
             }
 
             if !enabled {
+                state.dock_on_screen.store(false, Ordering::Relaxed);
+                // Closing the page, not just hiding it, is what frees the
+                // memory held by WebView2. It is created again when enabled.
+                if let Some((window, _)) = dock.take() {
+                    let _ = window.destroy();
+                    *state.layout.lock().unwrap() = None;
+                    state.dragging.store(false, Ordering::Relaxed);
+                    shown = false;
+                    hovering = false;
+                    placed = None;
+                    fullscreen = false;
+                    auto_hide_state.reset();
+                }
+                continue;
+            }
+
+            if dock.is_none() {
+                // The previous window may still be on its way out.
+                if app.get_webview_window(DOCK_WINDOW).is_some() {
+                    continue;
+                }
+                let created = create_dock_window(&app).and_then(|window| {
+                    let hwnd = window.hwnd()?.0 as isize;
+                    Ok((window, hwnd))
+                });
+                let Ok((window, hwnd)) = created else {
+                    thread::sleep(DOCK_RETRY);
+                    continue;
+                };
+                win::set_dock_style(hwnd, true);
+                dock = Some((window, hwnd));
+            }
+            let Some((window, hwnd)) = dock.clone() else {
+                continue;
+            };
+
+            if tick % TICKS_PER_SNAPSHOT == 0 {
+                fullscreen = win::is_fullscreen_app_active(own_pid);
+            }
+            if fullscreen {
                 state.dock_on_screen.store(false, Ordering::Relaxed);
                 if shown {
                     let _ = window.hide();
@@ -395,8 +463,10 @@ fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
                 // A dock that is slid away must let every click through.
                 let on_screen = !auto_hide || auto_hide_state.revealed;
                 state.dock_on_screen.store(on_screen, Ordering::Relaxed);
-                let over = on_screen
-                    && is_over_dock(cursor, area, layout, scale, hovering, auto_hide);
+                // An icon being dragged may leave the bar and must keep the mouse.
+                let over = state.dragging.load(Ordering::Relaxed)
+                    || (on_screen
+                        && is_over_dock(cursor, area, layout, scale, hovering, auto_hide));
                 if over != hovering {
                     hovering = over;
                     win::set_dock_style(hwnd, !over);
@@ -422,9 +492,18 @@ fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
                     let _ = app.emit("windows-changed", windows);
                 }
             }
-            tick = tick.wrapping_add(1);
         }
     });
+}
+
+fn create_dock_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .first()
+        .expect("the dock window is declared in tauri.conf.json");
+    WebviewWindowBuilder::from_config(app, config)?.build()
 }
 
 fn build_tray(app: &AppHandle, enabled: bool) -> tauri::Result<()> {
@@ -461,9 +540,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(DockState::default())
         .setup(|app| {
-            let window = app
-                .get_webview_window("main")
-                .expect("main window is declared in tauri.conf.json");
             let config = config::load(app.handle()).ok();
             let enabled = config.as_ref().is_none_or(|config| config.enabled);
             let state = app.state::<DockState>();
@@ -472,15 +548,24 @@ pub fn run() {
                 state.hide_taskbar.store(config.hide_taskbar, Ordering::Relaxed);
                 state.auto_hide.store(config.auto_hide, Ordering::Relaxed);
                 *state.widgets.lock().unwrap() = config.enabled_widgets();
+                state
+                    .start_with_windows
+                    .store(config.start_with_windows, Ordering::Relaxed);
+                // Written again so the entry follows the program if it was moved.
+                if config.start_with_windows {
+                    let _ = win::set_autostart(true);
+                }
             }
             build_tray(app.handle(), enabled)?;
-            spawn_monitor(app.handle().clone(), window);
+            spawn_monitor(app.handle().clone());
             spawn_widget_poller(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
+            save_dock_order,
+            set_dragging,
             get_windows,
             get_icon,
             set_layout,
@@ -500,8 +585,10 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // A disabled dock has no windows left, which must not end the program.
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::Exit => {
                 // Stops the monitor first, or it could hide the taskbar again.
                 app.state::<DockState>()
                     .hide_taskbar
@@ -509,5 +596,6 @@ pub fn run() {
                 thread::sleep(CURSOR_POLL * 2);
                 win::set_taskbar_visible(true);
             }
+            _ => {}
         });
 }

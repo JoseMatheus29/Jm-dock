@@ -20,6 +20,7 @@ interface DockItem {
 const LABEL_SPACE = 40;
 const SETTLE_MS = 180;
 const ERROR_MS = 6000;
+const DRAG_THRESHOLD = 6;
 const START_KEY = "start";
 const START_LOGO = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.5v8.5H3zM12.5 3H21v8.5h-8.5zM3 12.5h8.5V21H3zM12.5 12.5H21V21h-8.5z"/></svg>`;
 
@@ -36,6 +37,7 @@ let config: DockConfig = {
   showStartButton: true,
   hideTaskbar: false,
   autoHide: false,
+  startWithWindows: false,
   iconSize: 52,
   magnification: 1.6,
   alignment: "center",
@@ -44,12 +46,11 @@ let config: DockConfig = {
   savedThemes: [],
   customCss: "",
   apps: [],
+  appOrder: [],
   widgets: [],
   clock: { showSeconds: false, showDate: true, hour12: false },
 };
 let windows: AppWindow[] = [];
-/** Open apps that are not pinned, in order of appearance so they never reshuffle. */
-let runningOrder: string[] = [];
 let items: DockItem[] = [];
 let pinnedCount = 0;
 let restCenters: number[] = [];
@@ -57,6 +58,21 @@ let cursorX: number | null = null;
 let revealed = false;
 let settleTimer: number | undefined;
 let errorTimer: number | undefined;
+
+interface IconDrag {
+  button: HTMLButtonElement;
+  key: string;
+  startX: number;
+  /** Set once the pointer has moved far enough to not be a click. */
+  moving: boolean;
+  from: number;
+  to: number;
+  first: number;
+  last: number;
+}
+
+let drag: IconDrag | null = null;
+let suppressClick = false;
 
 const iconEls = new Map<string, HTMLButtonElement>();
 
@@ -95,15 +111,15 @@ function buildItems(): DockItem[] {
   const pinnedKeys = new Set(pinned.map((item) => item.key));
   pinnedCount = start.length + pinned.length;
 
-  runningOrder = runningOrder.filter((key) => byApp.has(key));
+  // Follows the saved order, so apps never reshuffle as they gain focus.
   for (const key of byApp.keys()) {
-    if (!pinnedKeys.has(key) && !runningOrder.includes(key)) {
-      runningOrder.push(key);
+    if (!pinnedKeys.has(key) && !config.appOrder.includes(key)) {
+      config.appOrder.push(key);
     }
   }
 
-  const running = runningOrder
-    .filter((key) => !pinnedKeys.has(key))
+  const running = config.appOrder
+    .filter((key) => byApp.has(key) && !pinnedKeys.has(key))
     .map((key) => {
       const appWindows = byApp.get(key)!;
       return {
@@ -123,9 +139,29 @@ function createIcon(item: DockItem): HTMLButtonElement {
   button.className = "icon";
   button.innerHTML = `<span class="fallback"></span><span class="dot"></span><span class="label"></span>`;
   button.addEventListener("click", () => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     const current = items.find((candidate) => candidate.key === key);
     if (current) activate(current, button).catch(showError);
   });
+  if (key !== START_KEY) {
+    button.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      suppressClick = false;
+      drag = {
+        button,
+        key,
+        startX: event.clientX,
+        moving: false,
+        from: 0,
+        to: 0,
+        first: 0,
+        last: 0,
+      };
+    });
+  }
   iconEls.set(key, button);
 
   const fallback = button.querySelector<HTMLElement>(".fallback")!;
@@ -175,6 +211,10 @@ async function activate(item: DockItem, button: HTMLButtonElement) {
 }
 
 function render() {
+  // Replacing icons in the middle of a drag would pull them from under the
+  // cursor. Ending the drag renders again, so nothing is lost.
+  if (drag?.moving) return;
+
   items = buildItems();
   const keys = new Set(items.map((item) => item.key));
   for (const [key, button] of iconEls) {
@@ -276,6 +316,86 @@ function settle() {
   settleTimer = setTimeout(() => dock.classList.remove("settling"), SETTLE_MS);
 }
 
+function beginDrag(active: IconDrag, event: PointerEvent) {
+  const from = items.findIndex((item) => item.key === active.key);
+  const firstPinned = config.showStartButton ? 1 : 0;
+  // Icons only move among their own kind: pinned or merely open.
+  const [first, last] =
+    from < pinnedCount
+      ? [firstPinned, pinnedCount - 1]
+      : [pinnedCount, items.length - 1];
+  if (from < 0 || first === last) {
+    drag = null;
+    return;
+  }
+
+  Object.assign(active, { moving: true, from, to: from, first, last });
+  active.button.setPointerCapture(event.pointerId);
+  invoke("set_dragging", { dragging: true }).catch(showError);
+  dock.classList.add("dragging");
+  active.button.classList.add("dragged");
+  cursorX = null;
+  measure();
+}
+
+/** Keeps the dragged icon under the cursor and opens a gap where it would land. */
+function updateDrag(active: IconDrag, x: number) {
+  const { from, first, last } = active;
+  const buttons = iconButtons();
+  const slot = config.iconSize + config.theme.gap;
+  const center = Math.min(
+    restCenters[last],
+    Math.max(restCenters[first], x),
+  );
+  active.to = first + Math.round((center - restCenters[first]) / slot);
+
+  for (let index = first; index <= last; index++) {
+    let shift = 0;
+    if (index === from) shift = center - restCenters[from];
+    else if (from < index && index <= active.to) shift = -slot;
+    else if (active.to <= index && index < from) shift = slot;
+    buttons[index].style.transform = shift ? `translateX(${shift}px)` : "";
+  }
+}
+
+function saveDragResult({ from, to, first }: IconDrag) {
+  const move = <T>(list: T[], source: number, target: number) => {
+    const [moved] = list.splice(source, 1);
+    list.splice(target, 0, moved);
+  };
+
+  if (from < pinnedCount) {
+    move(config.apps, from - first, to - first);
+  } else {
+    const open = items.slice(pinnedCount).map((item) => item.key);
+    move(open, from - first, to - first);
+    config.appOrder = [
+      ...open,
+      ...config.appOrder.filter((key) => !open.includes(key)),
+    ];
+  }
+  invoke("save_dock_order", {
+    apps: config.apps,
+    appOrder: config.appOrder,
+  }).catch(showError);
+}
+
+function endDrag(commit: boolean) {
+  const active = drag;
+  drag = null;
+  if (!active?.moving) return;
+
+  suppressClick = commit;
+  invoke("set_dragging", { dragging: false }).catch(showError);
+  dock.classList.remove("dragging");
+  active.button.classList.remove("dragged");
+  iconButtons().forEach((button) => (button.style.transform = ""));
+
+  if (commit && active.to !== active.from) saveDragResult(active);
+  render();
+  measure();
+}
+
 function updateSlide() {
   dock.classList.toggle("slid-away", config.autoHide && !revealed);
 }
@@ -293,7 +413,18 @@ function applyConfig(next: DockConfig) {
   measure();
 }
 
+document.addEventListener("pointermove", (event) => {
+  if (!drag) return;
+  if (!drag.moving) {
+    if (Math.abs(event.clientX - drag.startX) < DRAG_THRESHOLD) return;
+    beginDrag(drag, event);
+  }
+  if (drag?.moving) updateDrag(drag, event.clientX);
+});
+document.addEventListener("pointerup", () => endDrag(true));
+document.addEventListener("pointercancel", () => endDrag(false));
 document.addEventListener("mousemove", (event) => {
+  if (drag?.moving) return;
   clearTimeout(settleTimer);
   dock.classList.remove("settling");
   cursorX = event.clientX;
