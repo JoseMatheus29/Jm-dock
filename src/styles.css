@@ -1,0 +1,167 @@
+:root {
+  --bar-bg: rgba(24, 24, 28, 0.72);
+  --bar-border: rgba(255, 255, 255, 0.16);
+  --bar-radius: 22px;
+  --bar-padding: 9px;
+  --icon-gap: 6px;
+  --dot: rgba(255, 255, 255, 0.55);
+  --dot-active: #6ee7f9;
+  --label-bg: #18181c;
+  --label-text: #f4f4f5;
+  --bottom-gap: 8px;
+  --stage-align: center;
+
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: var(--label-text);
+  user-select: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: var(--stage-align);
+  justify-content: flex-end;
+  padding: 0 12px var(--bottom-gap);
+  box-sizing: border-box;
+}
+
+#dock {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--icon-gap);
+  padding: var(--bar-padding) calc(var(--bar-padding) + 3px);
+  background: var(--bar-bg);
+  border: 1px solid var(--bar-border);
+  border-radius: var(--bar-radius);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition:
+    transform 0.18s ease-out,
+    opacity 0.18s ease-out;
+}
+
+#dock.slid-away {
+  transform: translateY(calc(100% + var(--bottom-gap) + 2px));
+  opacity: 0;
+}
+
+.icon {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Sizes change on every mouse move, so they only animate when settling back. */
+#dock.settling .icon {
+  transition:
+    width 0.16s ease-out,
+    height 0.16s ease-out;
+}
+
+.icon img,
+.icon .fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 22%;
+  -webkit-user-drag: none;
+}
+
+.icon .fallback {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #52525b, #27272a);
+  font-size: 1.6em;
+  font-weight: 600;
+}
+
+.icon .fallback.start svg {
+  width: 56%;
+  height: 56%;
+  fill: var(--dot-active);
+}
+
+.icon.launching img,
+.icon.launching .fallback {
+  animation: launch 0.5s ease-out;
+}
+
+@keyframes launch {
+  40% {
+    transform: translateY(-14px);
+  }
+}
+
+.icon .dot {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--dot);
+  opacity: 0;
+}
+
+.icon.running .dot {
+  opacity: 1;
+}
+
+.icon.active .dot {
+  width: 14px;
+  margin-left: -7px;
+  border-radius: 2px;
+  background: var(--dot-active);
+}
+
+.icon .label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  max-width: 220px;
+  padding: 3px 9px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--label-bg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.icon:hover .label {
+  opacity: 1;
+}
+
+.separator {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 3px;
+  background: var(--bar-border);
+}
+
+#error {
+  margin: 0 0 6px;
+  padding: 3px 10px;
+  border-radius: 7px;
+  background: #7f1d1d;
+}

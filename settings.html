@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/settings.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personalizar Dock JM</title>
+    <script type="module" src="/src/settings.ts" defer></script>
+  </head>
+
+  <body>
+    <main>
+      <div id="load-error" class="banner" hidden>
+        <p id="load-error-text"></p>
+        <button id="open-file-error" type="button">Abrir dock.json</button>
+      </div>
+
+      <form id="form" autocomplete="off">
+        <section>
+          <h2>Geral</h2>
+          <label class="row">
+            <span>Dock ativa</span>
+            <input type="checkbox" class="switch" data-key="enabled" />
+          </label>
+          <label class="row">
+            <span>Botão do Menu Iniciar</span>
+            <input type="checkbox" class="switch" data-key="showStartButton" />
+          </label>
+          <label class="row">
+            <span>Mostrar a dock só ao levar o mouse à borda da tela</span>
+            <input type="checkbox" class="switch" data-key="autoHide" />
+          </label>
+          <label class="row">
+            <span>Esconder a barra de tarefas do Windows</span>
+            <input type="checkbox" class="switch" data-key="hideTaskbar" />
+          </label>
+          <p class="hint">
+            A barra volta quando a dock é desativada ou encerrada. Sem ela, use
+            Win+A para Wi-Fi e volume e Win+N para notificações e calendário.
+          </p>
+        </section>
+
+        <section>
+          <h2>Temas</h2>
+          <div id="presets" class="themes"></div>
+          <h3>Meus temas</h3>
+          <div id="saved" class="themes"></div>
+          <p id="saved-empty" class="hint">Nenhum tema salvo ainda.</p>
+          <div class="inline">
+            <input
+              id="theme-name"
+              type="text"
+              maxlength="30"
+              placeholder="Nome do tema atual"
+              aria-label="Nome do tema atual"
+            />
+            <button id="save-theme" type="button">Salvar tema</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Cores</h2>
+          <div class="colors">
+            <label>
+              <input type="color" data-theme="barColor" />
+              <span>Barra</span>
+            </label>
+            <label>
+              <input type="color" data-theme="borderColor" />
+              <span>Borda</span>
+            </label>
+            <label>
+              <input type="color" data-theme="dotColor" />
+              <span>App aberto</span>
+            </label>
+            <label>
+              <input type="color" data-theme="activeColor" />
+              <span>App em foco</span>
+            </label>
+            <label>
+              <input type="color" data-theme="labelBackground" />
+              <span>Fundo do nome</span>
+            </label>
+            <label>
+              <input type="color" data-theme="labelColor" />
+              <span>Texto do nome</span>
+            </label>
+          </div>
+          <label class="slider">
+            <span>Opacidade da barra</span>
+            <input type="range" data-theme="barOpacity" data-format="percent" min="0" max="1" step="0.01" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Opacidade da borda</span>
+            <input type="range" data-theme="borderOpacity" data-format="percent" min="0" max="1" step="0.01" />
+            <output></output>
+          </label>
+        </section>
+
+        <section>
+          <h2>Tamanho e formato</h2>
+          <label class="slider">
+            <span>Tamanho dos ícones</span>
+            <input type="range" data-key="iconSize" data-format="px" min="24" max="96" step="1" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Ampliação</span>
+            <input type="range" data-key="magnification" data-format="times" min="1" max="2.5" step="0.05" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Arredondamento</span>
+            <input type="range" data-theme="radius" data-format="px" min="0" max="48" step="1" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Margem interna</span>
+            <input type="range" data-theme="padding" data-format="px" min="0" max="24" step="1" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Espaço entre ícones</span>
+            <input type="range" data-theme="gap" data-format="px" min="0" max="24" step="1" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Distância da borda da tela</span>
+            <input type="range" data-key="bottomGap" data-format="px" min="0" max="48" step="1" />
+            <output></output>
+          </label>
+          <label class="row">
+            <span>Posição</span>
+            <select data-key="alignment">
+              <option value="left">Esquerda</option>
+              <option value="center">Centro</option>
+              <option value="right">Direita</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2>Apps fixados</h2>
+          <ul id="apps" class="apps"></ul>
+          <p id="apps-empty" class="hint">Nenhum app fixado.</p>
+          <button id="add-file" type="button">Adicionar programa...</button>
+          <h3>Fixar um app aberto</h3>
+          <div id="running" class="chips"></div>
+          <p id="running-empty" class="hint">Todos os apps abertos já estão fixados.</p>
+        </section>
+
+        <section>
+          <h2>CSS personalizado</h2>
+          <p class="hint">
+            Regras extras aplicadas à dock, como
+            <code>#dock { background: linear-gradient(90deg, #0f172a, #4c1d95); }</code>
+          </p>
+          <textarea
+            data-key="customCss"
+            rows="6"
+            spellcheck="false"
+            aria-label="CSS personalizado"
+          ></textarea>
+        </section>
+
+        <section class="actions">
+          <button id="reset" type="button">Restaurar aparência padrão</button>
+          <button id="open-file" type="button">Abrir dock.json</button>
+          <button id="quit" type="button">Encerrar a dock</button>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>
