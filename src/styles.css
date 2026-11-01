@@ -8,12 +8,16 @@
   --dot-active: #6ee7f9;
   --label-bg: #18181c;
   --label-text: #f4f4f5;
-  --bottom-gap: 8px;
+  --edge-gap: 8px;
   --stage-align: center;
   --widget-text: #f4f4f5;
   --icon-size: 52px;
+  --bar-solid: rgba(24, 24, 28, 0.72);
+  --bar-border-width: 1px;
+  --bar-glow: 0 0 0 transparent;
+  --dock-font: "Segoe UI Variable", "Segoe UI", sans-serif;
 
-  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-family: var(--dock-font);
   font-size: 13px;
   color: var(--label-text);
   user-select: none;
@@ -35,11 +39,30 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: var(--stage-align);
   justify-content: flex-end;
-  padding: 0 12px var(--bottom-gap);
   box-sizing: border-box;
+}
+
+/* The dock is the last child, so the reversed axes put it against the edge. */
+.edge-bottom #stage {
+  flex-direction: column;
+  padding: 0 12px var(--edge-gap);
+}
+
+.edge-top #stage {
+  flex-direction: column-reverse;
+  padding: var(--edge-gap) 12px 0;
+}
+
+.edge-left #stage {
+  flex-direction: row-reverse;
+  padding: 12px 0 12px var(--edge-gap);
+}
+
+.edge-right #stage {
+  flex-direction: row;
+  padding: 12px var(--edge-gap) 12px 0;
 }
 
 #dock {
@@ -48,17 +71,48 @@ body {
   gap: var(--icon-gap);
   padding: var(--bar-padding) calc(var(--bar-padding) + 3px);
   background: var(--bar-bg);
-  border: 1px solid var(--bar-border);
+  border: var(--bar-border-width) solid var(--bar-border);
   border-radius: var(--bar-radius);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    var(--bar-glow);
   transition:
     transform 0.18s ease-out,
     opacity 0.18s ease-out;
 }
 
+/* Icons grow away from the edge the dock sits on. */
+.edge-top #dock {
+  align-items: flex-start;
+}
+
+.edge-vertical #dock {
+  flex-direction: column;
+  padding: calc(var(--bar-padding) + 3px) var(--bar-padding);
+}
+
+.edge-left #dock {
+  align-items: flex-start;
+}
+
 #dock.slid-away {
-  transform: translateY(calc(100% + var(--bottom-gap) + 2px));
   opacity: 0;
+}
+
+.edge-bottom #dock.slid-away {
+  transform: translateY(calc(100% + var(--edge-gap) + 2px));
+}
+
+.edge-top #dock.slid-away {
+  transform: translateY(calc(-100% - var(--edge-gap) - 2px));
+}
+
+.edge-left #dock.slid-away {
+  transform: translateX(calc(-100% - var(--edge-gap) - 2px));
+}
+
+.edge-right #dock.slid-away {
+  transform: translateX(calc(100% + var(--edge-gap) + 2px));
 }
 
 .icon {
@@ -151,6 +205,34 @@ body {
   background: var(--dot-active);
 }
 
+.edge-top .icon .dot {
+  top: -7px;
+  bottom: auto;
+}
+
+.edge-vertical .icon .dot {
+  top: 50%;
+  bottom: auto;
+  margin-left: 0;
+  margin-top: -2px;
+}
+
+.edge-left .icon .dot {
+  left: -7px;
+}
+
+.edge-right .icon .dot {
+  left: auto;
+  right: -7px;
+}
+
+.edge-vertical .icon.active .dot {
+  width: 4px;
+  height: 14px;
+  margin-left: 0;
+  margin-top: -7px;
+}
+
 #widgets {
   flex: none;
   display: flex;
@@ -229,7 +311,7 @@ button.widget:focus-visible,
 }
 
 .widget svg .bolt {
-  stroke: var(--bar-bg);
+  stroke: var(--bar-solid);
   stroke-width: 1;
 }
 
@@ -342,10 +424,6 @@ button.widget:focus-visible,
   cursor: pointer;
 }
 
-.widget .label {
-  bottom: calc(100% + 8px);
-}
-
 .icon .label,
 .widget .label {
   position: absolute;
@@ -372,12 +450,115 @@ button.widget:focus-visible,
   opacity: 1;
 }
 
+.edge-top .icon .label,
+.edge-top .widget .label {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+.edge-vertical .icon .label,
+.edge-vertical .widget .label {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.edge-left .icon .label,
+.edge-left .widget .label {
+  left: calc(100% + 8px);
+}
+
+.edge-right .icon .label,
+.edge-right .widget .label {
+  left: auto;
+  right: calc(100% + 8px);
+}
+
 .separator {
   flex: none;
   align-self: stretch;
   width: 1px;
   margin: 2px 3px;
   background: var(--bar-border);
+}
+
+.edge-vertical .separator {
+  width: auto;
+  height: 1px;
+  margin: 3px 2px;
+}
+
+/* A side bar is only one icon wide, so widgets stack and shed their extras. */
+.edge-vertical #widgets {
+  flex-direction: column;
+  margin-left: 0;
+  margin-top: 6px;
+}
+
+.edge-vertical #widgets:first-child {
+  margin-top: 0;
+}
+
+.edge-vertical .capsule {
+  flex-direction: column;
+  padding: 5px 0;
+}
+
+.edge-vertical .widget {
+  justify-content: center;
+  padding: 6px 2px;
+}
+
+.edge-vertical .widget.volume,
+.edge-vertical .widget.network,
+.edge-vertical .widget.battery {
+  width: auto;
+  height: calc(var(--icon-size) * 0.77);
+  padding: 0;
+}
+
+.edge-vertical .widget.text {
+  align-items: center;
+}
+
+.edge-vertical .widget.clock .sub,
+.edge-vertical .widget.system .tag {
+  display: none;
+}
+
+.edge-vertical .widget.system .main,
+.edge-vertical .widget.system .sub {
+  min-width: 0;
+  text-align: center;
+}
+
+.edge-vertical .capsule > .widget:not([hidden]) ~ .widget.text::before,
+.edge-vertical .capsule > .widget.text:has(~ .widget:not([hidden]):not(.text))::after {
+  top: 0;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: 55%;
+  height: 1px;
+  transform: translateX(-50%);
+}
+
+.edge-vertical .capsule > .widget.text:has(~ .widget:not([hidden]):not(.text))::after {
+  top: auto;
+  bottom: 0;
+}
+
+.edge-vertical .widget.media {
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 0;
+  align-items: center;
+}
+
+.edge-vertical .widget.media .track,
+.edge-vertical .widget.media .controls [data-action="previous"],
+.edge-vertical .widget.media .controls [data-action="next"] {
+  display: none;
 }
 
 #error {

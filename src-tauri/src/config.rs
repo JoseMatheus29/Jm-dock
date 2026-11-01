@@ -14,8 +14,11 @@ pub struct DockConfig {
     pub start_with_windows: bool,
     pub icon_size: f64,
     pub magnification: f64,
+    pub magnify_style: String,
+    pub edge: Edge,
     pub alignment: String,
-    pub bottom_gap: f64,
+    #[serde(alias = "bottomGap")]
+    pub edge_gap: f64,
     pub theme: Theme,
     pub saved_themes: Vec<SavedTheme>,
     pub custom_css: String,
@@ -24,6 +27,17 @@ pub struct DockConfig {
     pub app_order: Vec<String>,
     pub widgets: Vec<WidgetSetting>,
     pub clock: ClockOptions,
+}
+
+/// Screen edge the dock sits on.
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Edge {
+    #[default]
+    Bottom,
+    Top,
+    Left,
+    Right,
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -87,6 +101,19 @@ pub struct Theme {
     pub label_background: String,
     pub label_color: String,
     pub widget_color: String,
+    pub use_gradient: bool,
+    pub bar_color2: String,
+    pub gradient_angle: f64,
+    pub border_width: f64,
+    pub pattern: String,
+    pub pattern_color: String,
+    pub pattern_opacity: f64,
+    pub pattern_size: f64,
+    pub glow_color: String,
+    pub glow_size: f64,
+    pub font: String,
+    /// A picture chosen by the user, as a data URL.
+    pub bar_image: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -111,8 +138,10 @@ impl Default for DockConfig {
             start_with_windows: false,
             icon_size: 52.0,
             magnification: 1.6,
+            magnify_style: "wave".into(),
+            edge: Edge::default(),
             alignment: "center".into(),
-            bottom_gap: 8.0,
+            edge_gap: 8.0,
             theme: Theme::default(),
             saved_themes: Vec::new(),
             custom_css: String::new(),
@@ -139,6 +168,18 @@ impl Default for Theme {
             label_background: "#18181c".into(),
             label_color: "#f4f4f5".into(),
             widget_color: "#f4f4f5".into(),
+            use_gradient: false,
+            bar_color2: "#18181c".into(),
+            gradient_angle: 135.0,
+            border_width: 1.0,
+            pattern: "none".into(),
+            pattern_color: "#ffffff".into(),
+            pattern_opacity: 0.12,
+            pattern_size: 24.0,
+            glow_color: "#6ee7f9".into(),
+            glow_size: 0.0,
+            font: "Segoe UI Variable".into(),
+            bar_image: String::new(),
         }
     }
 }
@@ -148,7 +189,11 @@ impl DockConfig {
     fn normalize(&mut self) {
         self.icon_size = self.icon_size.clamp(24.0, 128.0);
         self.magnification = self.magnification.clamp(1.0, 3.0);
-        self.bottom_gap = self.bottom_gap.clamp(0.0, 64.0);
+        self.edge_gap = self.edge_gap.clamp(0.0, 64.0);
+        self.theme.border_width = self.theme.border_width.clamp(0.0, 6.0);
+        self.theme.pattern_opacity = self.theme.pattern_opacity.clamp(0.0, 1.0);
+        self.theme.pattern_size = self.theme.pattern_size.clamp(8.0, 80.0);
+        self.theme.glow_size = self.theme.glow_size.clamp(0.0, 32.0);
         self.theme.bar_opacity = self.theme.bar_opacity.clamp(0.0, 1.0);
         self.theme.border_opacity = self.theme.border_opacity.clamp(0.0, 1.0);
         self.theme.radius = self.theme.radius.clamp(0.0, 64.0);

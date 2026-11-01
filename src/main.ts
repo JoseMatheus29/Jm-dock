@@ -1,12 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import {
-  applyAppearance,
-  AppWindow,
-  DockConfig,
-  PRESETS,
-  WidgetData,
-} from "./config";
+import { applyAppearance, PRESETS } from "./appearance";
+import { AppWindow, DockConfig, WidgetData } from "./config";
 import { WidgetBar } from "./widgets";
 
 interface DockItem {
@@ -16,8 +11,9 @@ interface DockItem {
   windows: AppWindow[];
 }
 
-/** Room above the magnified icons for the name label. */
+/** Room past the magnified icons for the name label, above or beside them. */
 const LABEL_SPACE = 40;
+const SIDE_LABEL_SPACE = 240;
 const SETTLE_MS = 180;
 const ERROR_MS = 6000;
 const DRAG_THRESHOLD = 6;
@@ -40,8 +36,10 @@ let config: DockConfig = {
   startWithWindows: false,
   iconSize: 52,
   magnification: 1.6,
+  magnifyStyle: "wave",
+  edge: "bottom",
   alignment: "center",
-  bottomGap: 8,
+  edgeGap: 8,
   theme: PRESETS[0].theme,
   savedThemes: [],
   customCss: "",
@@ -54,7 +52,8 @@ let windows: AppWindow[] = [];
 let items: DockItem[] = [];
 let pinnedCount = 0;
 let restCenters: number[] = [];
-let cursorX: number | null = null;
+/** Pointer position along the bar while it is over the dock. */
+let cursor: number | null = null;
 let revealed = false;
 let settleTimer: number | undefined;
 let errorTimer: number | undefined;
@@ -62,7 +61,7 @@ let errorTimer: number | undefined;
 interface IconDrag {
   button: HTMLButtonElement;
   key: string;
-  startX: number;
+  start: number;
   /** Set once the pointer has moved far enough to not be a click. */
   moving: boolean;
   from: number;
@@ -75,6 +74,21 @@ let drag: IconDrag | null = null;
 let suppressClick = false;
 
 const iconEls = new Map<string, HTMLButtonElement>();
+
+function isVertical(): boolean {
+  return config.edge === "left" || config.edge === "right";
+}
+
+/** The pointer's position along the bar, whichever way the bar runs. */
+function alongEdge(event: MouseEvent): number {
+  return isVertical() ? event.clientY : event.clientX;
+}
+
+function peakSize(): number {
+  return config.magnifyStyle === "off"
+    ? config.iconSize
+    : config.iconSize * config.magnification;
+}
 
 function appKey(path: string): string {
   return path.slice(path.lastIndexOf("\\") + 1).toLowerCase();
@@ -153,7 +167,7 @@ function createIcon(item: DockItem): HTMLButtonElement {
       drag = {
         button,
         key,
-        startX: event.clientX,
+        start: alongEdge(event),
         moving: false,
         from: 0,
         to: 0,
@@ -261,30 +275,37 @@ function setSize(button: HTMLElement, size: number) {
 /** Takes the resting geometry and hands it to Rust for click-through testing. */
 function measure() {
   const base = config.iconSize;
-  const peak = base * config.magnification;
+  const peak = peakSize();
+  const vertical = isVertical();
   const buttons = iconButtons();
 
   dock.classList.remove("settling");
-  // A fixed height lets magnified icons rise out of the bar instead of growing it.
-  dock.style.height = `${base}px`;
   buttons.forEach((button) => setSize(button, base));
+  // A fixed depth lets magnified icons rise out of the bar instead of growing it.
+  dock.style.height = vertical ? "" : `${base}px`;
+  dock.style.width = "";
+  if (vertical) dock.style.width = getComputedStyle(dock).width;
+
   const rect = dock.getBoundingClientRect();
   restCenters = buttons.map((button) => {
     const box = button.getBoundingClientRect();
-    return box.left + box.width / 2;
+    return vertical ? box.top + box.height / 2 : box.left + box.width / 2;
   });
   magnify();
 
+  // Only reads the axis along the edge, which the slide animation leaves alone.
+  const thickness = vertical ? rect.width : rect.height;
+  const labelSpace = vertical ? SIDE_LABEL_SPACE : LABEL_SPACE;
   invoke("set_layout", {
     layout: {
-      x: rect.left,
-      width: rect.width,
-      height: rect.height,
-      // Read from the config because rect.bottom moves with the slide animation.
-      bottom: config.bottomGap,
+      edge: config.edge,
+      start: vertical ? rect.top : rect.left,
+      length: vertical ? rect.height : rect.width,
+      thickness,
+      gap: config.edgeGap,
       extra: (peak - base) * 2,
-      windowHeight: Math.ceil(
-        peak + LABEL_SPACE + rect.height - base + config.bottomGap,
+      windowThickness: Math.ceil(
+        peak + labelSpace + thickness - base + config.edgeGap,
       ),
     },
   }).catch(showError);
@@ -295,21 +316,24 @@ function measure() {
  * centers, since measuring the moving icons would feed back into itself.
  */
 function magnify() {
-  if (cursorX === null) return;
-  const x = cursorX;
+  if (cursor === null || config.magnifyStyle === "off") return;
+  const position = cursor;
   const base = config.iconSize;
-  const peak = base * config.magnification;
-  const range = base * 2.5;
+  const peak = peakSize();
+  const single = config.magnifyStyle === "single";
+  const range = single ? (base + config.theme.gap) / 2 : base * 2.5;
   iconButtons().forEach((button, index) => {
-    const distance = Math.abs(x - restCenters[index]);
-    const strength =
-      distance < range ? (Math.cos((Math.PI * distance) / range) + 1) / 2 : 0;
+    const distance = Math.abs(position - restCenters[index]);
+    let strength = 0;
+    if (distance < range) {
+      strength = single ? 1 : (Math.cos((Math.PI * distance) / range) + 1) / 2;
+    }
     setSize(button, base + (peak - base) * strength);
   });
 }
 
 function settle() {
-  cursorX = null;
+  cursor = null;
   dock.classList.add("settling");
   iconButtons().forEach((button) => setSize(button, config.iconSize));
   clearTimeout(settleTimer);
@@ -334,18 +358,19 @@ function beginDrag(active: IconDrag, event: PointerEvent) {
   invoke("set_dragging", { dragging: true }).catch(showError);
   dock.classList.add("dragging");
   active.button.classList.add("dragged");
-  cursorX = null;
+  cursor = null;
   measure();
 }
 
 /** Keeps the dragged icon under the cursor and opens a gap where it would land. */
-function updateDrag(active: IconDrag, x: number) {
+function updateDrag(active: IconDrag, position: number) {
   const { from, first, last } = active;
   const buttons = iconButtons();
   const slot = config.iconSize + config.theme.gap;
+  const translate = isVertical() ? "translateY" : "translateX";
   const center = Math.min(
     restCenters[last],
-    Math.max(restCenters[first], x),
+    Math.max(restCenters[first], position),
   );
   active.to = first + Math.round((center - restCenters[first]) / slot);
 
@@ -354,7 +379,7 @@ function updateDrag(active: IconDrag, x: number) {
     if (index === from) shift = center - restCenters[from];
     else if (from < index && index <= active.to) shift = -slot;
     else if (active.to <= index && index < from) shift = slot;
-    buttons[index].style.transform = shift ? `translateX(${shift}px)` : "";
+    buttons[index].style.transform = shift ? `${translate}(${shift}px)` : "";
   }
 }
 
@@ -416,10 +441,10 @@ function applyConfig(next: DockConfig) {
 document.addEventListener("pointermove", (event) => {
   if (!drag) return;
   if (!drag.moving) {
-    if (Math.abs(event.clientX - drag.startX) < DRAG_THRESHOLD) return;
+    if (Math.abs(alongEdge(event) - drag.start) < DRAG_THRESHOLD) return;
     beginDrag(drag, event);
   }
-  if (drag?.moving) updateDrag(drag, event.clientX);
+  if (drag?.moving) updateDrag(drag, alongEdge(event));
 });
 document.addEventListener("pointerup", () => endDrag(true));
 document.addEventListener("pointercancel", () => endDrag(false));
@@ -427,7 +452,7 @@ document.addEventListener("mousemove", (event) => {
   if (drag?.moving) return;
   clearTimeout(settleTimer);
   dock.classList.remove("settling");
-  cursorX = event.clientX;
+  cursor = alongEdge(event);
   magnify();
 });
 document.addEventListener("contextmenu", (event) => {

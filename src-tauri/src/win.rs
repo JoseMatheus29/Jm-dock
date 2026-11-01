@@ -45,6 +45,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, w};
 
 const ICON_SIZE: i32 = 128;
+const MAX_IMAGE_BYTES: u64 = 3 * 1024 * 1024;
 const SHELL_CLASSES: [&str; 3] = ["Progman", "WorkerW", "Shell_TrayWnd"];
 /// Shell surfaces that can span the screen, such as the desktop and Alt+Tab.
 const NOT_FULLSCREEN_APPS: [&str; 6] = [
@@ -414,6 +415,29 @@ pub fn launch(path: &str) -> Result<(), String> {
     } else {
         Err(format!("Não foi possível abrir {path}"))
     }
+}
+
+/// Reads a picture chosen by the user as a data URL. The size is capped because
+/// it travels inside the config on every change.
+pub fn read_image(path: &str) -> Result<String, String> {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_lowercase);
+    let mime = match extension.as_deref() {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => return Err("Escolha uma imagem PNG, JPG, WEBP ou GIF".into()),
+    };
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size > MAX_IMAGE_BYTES {
+        return Err("A imagem precisa ter no máximo 3 MB".into());
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{mime};base64,{encoded}"))
 }
 
 /// Icon of a file as a PNG data URL.

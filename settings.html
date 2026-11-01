@@ -107,7 +107,117 @@
         </section>
 
         <section>
+          <h2>Estilo da barra</h2>
+          <label class="row">
+            <span>Usar gradiente</span>
+            <input type="checkbox" class="switch" data-theme="useGradient" />
+          </label>
+          <div class="colors">
+            <label>
+              <input type="color" data-theme="barColor2" />
+              <span>Segunda cor</span>
+            </label>
+          </div>
+          <label class="slider">
+            <span>Direção do gradiente</span>
+            <input type="range" data-theme="gradientAngle" data-format="deg" min="0" max="360" step="5" />
+            <output></output>
+          </label>
+
+          <h3>Padrão</h3>
+          <label class="row">
+            <span>Desenho</span>
+            <select data-theme="pattern">
+              <option value="none">Nenhum</option>
+              <option value="dots">Bolinhas</option>
+              <option value="stripes">Listras</option>
+              <option value="checker">Xadrez</option>
+              <option value="hearts">Corações</option>
+              <option value="stars">Estrelas</option>
+              <option value="sparks">Brilhos</option>
+              <option value="swirls">Espirais</option>
+              <option value="bows">Laços</option>
+            </select>
+          </label>
+          <div class="colors">
+            <label>
+              <input type="color" data-theme="patternColor" />
+              <span>Cor do padrão</span>
+            </label>
+          </div>
+          <label class="slider">
+            <span>Intensidade do padrão</span>
+            <input type="range" data-theme="patternOpacity" data-format="percent" min="0" max="1" step="0.01" />
+            <output></output>
+          </label>
+          <label class="slider">
+            <span>Tamanho do padrão</span>
+            <input type="range" data-theme="patternSize" data-format="px" min="8" max="80" step="1" />
+            <output></output>
+          </label>
+
+          <h3>Imagem de fundo</h3>
+          <p class="hint">
+            Fica atrás da cor da barra. Diminua a opacidade da barra para ver mais
+            da imagem. Até 3 MB.
+          </p>
+          <div class="inline">
+            <button id="choose-image" type="button">Escolher imagem...</button>
+            <button id="remove-image" type="button">Remover imagem</button>
+          </div>
+
+          <h3>Contorno e brilho</h3>
+          <label class="slider">
+            <span>Espessura da borda</span>
+            <input type="range" data-theme="borderWidth" data-format="px" min="0" max="6" step="1" />
+            <output></output>
+          </label>
+          <div class="colors">
+            <label>
+              <input type="color" data-theme="glowColor" />
+              <span>Cor do brilho</span>
+            </label>
+          </div>
+          <label class="slider">
+            <span>Tamanho do brilho</span>
+            <input type="range" data-theme="glowSize" data-format="px" min="0" max="32" step="1" />
+            <output></output>
+          </label>
+
+          <h3>Texto</h3>
+          <label class="row">
+            <span>Fonte</span>
+            <select data-theme="font">
+              <option value="Segoe UI Variable">Segoe UI</option>
+              <option value="Bahnschrift">Bahnschrift</option>
+              <option value="Segoe Print">Segoe Print</option>
+              <option value="Comic Sans MS">Comic Sans</option>
+              <option value="Consolas">Consolas</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Impact">Impact</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
           <h2>Tamanho e formato</h2>
+          <label class="row">
+            <span>Borda da tela</span>
+            <select data-key="edge">
+              <option value="bottom">Embaixo</option>
+              <option value="top">Em cima</option>
+              <option value="left">Esquerda</option>
+              <option value="right">Direita</option>
+            </select>
+          </label>
+          <label class="row">
+            <span>Efeito ao passar o mouse</span>
+            <select data-key="magnifyStyle">
+              <option value="wave">Onda nos ícones vizinhos</option>
+              <option value="single">Só o ícone apontado</option>
+              <option value="off">Sem ampliação</option>
+            </select>
+          </label>
           <label class="slider">
             <span>Tamanho dos ícones</span>
             <input type="range" data-key="iconSize" data-format="px" min="24" max="96" step="1" />
@@ -135,15 +245,15 @@
           </label>
           <label class="slider">
             <span>Distância da borda da tela</span>
-            <input type="range" data-key="bottomGap" data-format="px" min="0" max="48" step="1" />
+            <input type="range" data-key="edgeGap" data-format="px" min="0" max="48" step="1" />
             <output></output>
           </label>
           <label class="row">
-            <span>Posição</span>
+            <span>Posição na borda</span>
             <select data-key="alignment">
-              <option value="left">Esquerda</option>
+              <option value="left">Início</option>
               <option value="center">Centro</option>
-              <option value="right">Direita</option>
+              <option value="right">Fim</option>
             </select>
           </label>
         </section>

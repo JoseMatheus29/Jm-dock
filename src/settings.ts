@@ -1,14 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import {
-  AppWindow,
-  DockConfig,
-  PRESETS,
-  SavedTheme,
-  Theme,
-  WidgetId,
-} from "./config";
+import { barBackground, PRESETS } from "./appearance";
+import { AppWindow, DockConfig, SavedTheme, Theme, WidgetId } from "./config";
 
 type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 type Values = Record<string, string | number | boolean>;
@@ -19,6 +13,7 @@ const REFRESH_RUNNING_MS = 2000;
 const FORMATS: Record<string, (value: number) => string> = {
   percent: (value) => `${Math.round(value * 100)}%`,
   px: (value) => `${value}px`,
+  deg: (value) => `${value}°`,
   times: (value) => `${value.toFixed(2)}×`,
 };
 
@@ -128,7 +123,7 @@ function themeCard(saved: SavedTheme, onRemove?: () => void): HTMLElement {
   pick.className = "pick";
   const swatch = document.createElement("div");
   swatch.className = "swatch";
-  swatch.style.background = theme.barOpacity > 0 ? theme.barColor : "transparent";
+  swatch.style.background = barBackground(theme);
   swatch.style.borderColor =
     theme.borderOpacity > 0 ? theme.borderColor : "var(--line)";
   swatch.style.borderRadius = `${Math.min(theme.radius, 14)}px`;
@@ -378,10 +373,33 @@ function bindEvents() {
     config.theme = { ...PRESETS[0].theme };
     config.iconSize = 52;
     config.magnification = 1.6;
+    config.magnifyStyle = "wave";
+    config.edge = "bottom";
     config.alignment = "center";
-    config.bottomGap = 8;
+    config.edgeGap = 8;
     config.customCss = "";
     refreshControls();
+    scheduleSave();
+  });
+
+  document.querySelector("#choose-image")!.addEventListener("click", async () => {
+    const path = await open({
+      title: "Escolher imagem de fundo",
+      filters: [{ name: "Imagens", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    });
+    if (typeof path !== "string") return;
+    try {
+      config.theme.barImage = await invoke<string>("load_bar_image", { path });
+      renderThemes();
+      scheduleSave();
+    } catch (error) {
+      showError(error);
+    }
+  });
+
+  document.querySelector("#remove-image")!.addEventListener("click", () => {
+    config.theme.barImage = "";
+    renderThemes();
     scheduleSave();
   });
 

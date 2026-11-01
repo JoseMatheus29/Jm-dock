@@ -17,7 +17,7 @@ use tauri::{
 };
 use windows::Win32::Foundation::RECT;
 
-use config::{DockConfig, PinnedApp, WidgetId};
+use config::{DockConfig, Edge, PinnedApp, WidgetId};
 use widgets::WidgetData;
 use win::AppWindow;
 
@@ -32,18 +32,19 @@ const DOCK_HIDE_DELAY: Duration = Duration::from_millis(500);
 const WIDGET_POLL: Duration = Duration::from_millis(100);
 const WIDGET_REFRESH: Duration = Duration::from_secs(1);
 
-/// Dock geometry measured by the frontend, in CSS pixels. `bottom` is the gap
-/// between the bar and the bottom of the window.
+/// Dock geometry measured by the frontend, in CSS pixels. `start` and `length`
+/// run along the screen edge, `thickness` and `gap` away from it.
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Layout {
-    x: f64,
-    width: f64,
-    height: f64,
-    bottom: f64,
+    edge: Edge,
+    start: f64,
+    length: f64,
+    thickness: f64,
+    gap: f64,
     /// How far the magnified icons can reach outside the bar at rest.
     extra: f64,
-    window_height: f64,
+    window_thickness: f64,
 }
 
 #[derive(Default)]
@@ -110,6 +111,11 @@ fn get_windows(state: State<DockState>) -> Vec<AppWindow> {
 #[tauri::command(async)]
 fn get_icon(path: String) -> Option<String> {
     win::file_icon(&path)
+}
+
+#[tauri::command(async)]
+fn load_bar_image(path: String) -> Result<String, String> {
+    win::read_image(&path)
 }
 
 #[tauri::command]
@@ -252,34 +258,60 @@ fn request_settings(app: &AppHandle) {
     });
 }
 
-/// Pins the window to the bottom of the work area, spanning its full width.
-fn place_window(window: &WebviewWindow, area: RECT, height: f64) -> tauri::Result<()> {
-    let height = height.ceil() as i32;
-    window.set_size(PhysicalSize::new(area.right - area.left, height))?;
-    window.set_position(PhysicalPosition::new(area.left, area.bottom - height))
+/// Pins the window to an edge of the work area, spanning that edge entirely.
+fn place_window(
+    window: &WebviewWindow,
+    area: RECT,
+    edge: Edge,
+    thickness: i32,
+) -> tauri::Result<()> {
+    let (width, height) = (area.right - area.left, area.bottom - area.top);
+    let (size, position) = match edge {
+        Edge::Bottom => ((width, thickness), (area.left, area.bottom - thickness)),
+        Edge::Top => ((width, thickness), (area.left, area.top)),
+        Edge::Left => ((thickness, height), (area.left, area.top)),
+        Edge::Right => ((thickness, height), (area.right - thickness, area.top)),
+    };
+    window.set_size(PhysicalSize::new(size.0, size.1))?;
+    window.set_position(PhysicalPosition::new(position.0, position.1))
+}
+
+/// The cursor as distance along the edge and distance away from it.
+fn edge_coords((x, y): (i32, i32), area: RECT, edge: Edge) -> (f64, f64) {
+    let (along, depth) = match edge {
+        Edge::Bottom => (x - area.left, area.bottom - 1 - y),
+        Edge::Top => (x - area.left, y - area.top),
+        Edge::Left => (y - area.top, x - area.left),
+        Edge::Right => (y - area.top, area.right - 1 - x),
+    };
+    (along as f64, depth as f64)
 }
 
 fn is_over_dock(
-    (x, y): (i32, i32),
+    cursor: (i32, i32),
     area: RECT,
     layout: Layout,
     scale: f64,
     hovering: bool,
     auto_hide: bool,
 ) -> bool {
-    let (x, y) = (x as f64, y as f64);
+    let (along, depth) = edge_coords(cursor, area, layout.edge);
     let reach = if hovering { layout.extra * scale } else { 0.0 };
-    let left = area.left as f64 + layout.x * scale - reach;
-    let right = area.left as f64 + (layout.x + layout.width) * scale + reach;
-    let bar_bottom = area.bottom as f64 - layout.bottom * scale;
-    let top = bar_bottom - layout.height * scale - reach;
-    // The cursor arrives from the screen edge, so the gap below must not count as leaving.
-    let bottom = if auto_hide { area.bottom as f64 } else { bar_bottom };
-    x >= left && x <= right && y >= top && y <= bottom
+    let start = layout.start * scale - reach;
+    let end = (layout.start + layout.length) * scale + reach;
+    // The cursor arrives from the screen edge, so the gap must not count as leaving.
+    let near = if auto_hide { 0.0 } else { layout.gap * scale };
+    let far = (layout.gap + layout.thickness) * scale + reach;
+    along >= start && along <= end && depth >= near && depth <= far
 }
 
-fn is_at_bottom_edge((x, y): (i32, i32), area: RECT) -> bool {
-    x >= area.left && x < area.right && y >= area.bottom - 1
+fn is_at_edge(cursor: (i32, i32), area: RECT, edge: Edge) -> bool {
+    let (along, depth) = edge_coords(cursor, area, edge);
+    let length = match edge {
+        Edge::Bottom | Edge::Top => area.right - area.left,
+        Edge::Left | Edge::Right => area.bottom - area.top,
+    };
+    along >= 0.0 && along < length as f64 && depth <= 0.0
 }
 
 /// Decides when an auto-hidden dock is on screen.
@@ -443,8 +475,11 @@ fn spawn_monitor(app: AppHandle) {
             };
             let scale = window.scale_factor().unwrap_or(1.0);
 
-            let target = (area, (layout.window_height * scale).ceil() as i32);
-            if placed != Some(target) && place_window(&window, area, target.1 as f64).is_ok() {
+            let thickness = (layout.window_thickness * scale).ceil() as i32;
+            let target = (area, layout.edge, thickness);
+            if placed != Some(target)
+                && place_window(&window, area, layout.edge, thickness).is_ok()
+            {
                 placed = Some(target);
             }
             if !shown && placed.is_some() {
@@ -473,7 +508,8 @@ fn spawn_monitor(app: AppHandle) {
                     let _ = app.emit("dock-hover", over);
                 }
 
-                if auto_hide && auto_hide_state.update(is_at_bottom_edge(cursor, area), over) {
+                if auto_hide && auto_hide_state.update(is_at_edge(cursor, area, layout.edge), over)
+                {
                     let _ = app.emit("dock-reveal", auto_hide_state.revealed);
                 }
             }
@@ -568,6 +604,7 @@ pub fn run() {
             set_dragging,
             get_windows,
             get_icon,
+            load_bar_image,
             set_layout,
             launch_app,
             focus_window,

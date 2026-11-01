@@ -132,7 +132,7 @@ export class WidgetBar {
       ),
       system: buildButton(
         "system text",
-        `<span class="main"></span><span class="sub"></span>`,
+        `<span class="main"><span class="tag">CPU </span><span class="num"></span></span><span class="sub"><span class="tag">RAM </span><span class="num"></span></span>`,
         call("open_task_manager"),
       ),
       media: this.buildMedia(),
@@ -278,9 +278,10 @@ export class WidgetBar {
 
     system.hidden = !data.system;
     if (data.system) {
-      setText(system.querySelector(".main")!, `CPU ${data.system.cpu}%`);
-      setText(system.querySelector(".sub")!, `RAM ${data.system.memory}%`);
-      setText(system.querySelector(".label")!, "Abrir o Gerenciador de Tarefas");
+      const { cpu, memory } = data.system;
+      setText(system.querySelector(".main .num")!, `${cpu}%`);
+      setText(system.querySelector(".sub .num")!, `${memory}%`);
+      setText(system.querySelector(".label")!, `CPU ${cpu}% • RAM ${memory}%`);
     }
 
     media.hidden = !data.media;
