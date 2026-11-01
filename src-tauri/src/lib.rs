@@ -1,4 +1,5 @@
 mod config;
+mod widgets;
 mod win;
 
 use std::process::Command;
@@ -16,7 +17,8 @@ use tauri::{
 };
 use windows::Win32::Foundation::RECT;
 
-use config::DockConfig;
+use config::{DockConfig, WidgetId};
+use widgets::WidgetData;
 use win::AppWindow;
 
 const CURSOR_POLL: Duration = Duration::from_millis(40);
@@ -25,6 +27,8 @@ const TICKS_PER_SNAPSHOT: u32 = 12;
 const SETTINGS_WINDOW: &str = "settings";
 /// Grace period for reaching an auto-hidden dock after touching the screen edge.
 const DOCK_HIDE_DELAY: Duration = Duration::from_millis(500);
+const WIDGET_POLL: Duration = Duration::from_millis(100);
+const WIDGET_REFRESH: Duration = Duration::from_secs(1);
 
 /// Dock geometry measured by the frontend, in CSS pixels. `bottom` is the gap
 /// between the bar and the bottom of the window.
@@ -48,6 +52,11 @@ struct DockState {
     layout: Mutex<Option<Layout>>,
     windows: Mutex<Vec<AppWindow>>,
     tray_toggle: Mutex<Option<CheckMenuItem<Wry>>>,
+    dock_on_screen: AtomicBool,
+    widgets: Mutex<Vec<WidgetId>>,
+    widget_data: Mutex<WidgetData>,
+    /// Asks the widget thread to read again without waiting for its next turn.
+    widgets_stale: AtomicBool,
 }
 
 #[tauri::command]
@@ -104,6 +113,41 @@ fn open_settings(app: AppHandle) {
 }
 
 #[tauri::command]
+fn open_quick_settings() {
+    win::open_quick_settings();
+}
+
+#[tauri::command]
+fn open_calendar() {
+    win::open_calendar();
+}
+
+#[tauri::command]
+fn open_task_manager() -> Result<(), String> {
+    win::launch("taskmgr.exe")
+}
+
+#[tauri::command]
+fn get_widget_data(state: State<DockState>) -> WidgetData {
+    state.widgets_stale.store(true, Ordering::Relaxed);
+    state.widget_data.lock().unwrap().clone()
+}
+
+#[tauri::command(async)]
+fn set_volume(level: f32, state: State<DockState>) -> Result<(), String> {
+    widgets::set_volume(level)?;
+    state.widgets_stale.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command(async)]
+fn media_action(action: String, state: State<DockState>) -> Result<(), String> {
+    widgets::media_action(&action)?;
+    state.widgets_stale.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -124,6 +168,8 @@ fn apply_config(app: &AppHandle, config: DockConfig) {
     state.enabled.store(config.enabled, Ordering::Relaxed);
     state.hide_taskbar.store(config.hide_taskbar, Ordering::Relaxed);
     state.auto_hide.store(config.auto_hide, Ordering::Relaxed);
+    *state.widgets.lock().unwrap() = config.enabled_widgets();
+    state.widgets_stale.store(true, Ordering::Relaxed);
     if let Some(toggle) = state.tray_toggle.lock().unwrap().as_ref() {
         let _ = toggle.set_checked(config.enabled);
     }
@@ -239,6 +285,40 @@ impl AutoHide {
     }
 }
 
+/// Reads widget data only while the dock is on screen, so an auto-hidden dock
+/// costs nothing, and refreshes the moment it slides in.
+fn spawn_widget_poller(app: AppHandle) {
+    thread::spawn(move || {
+        widgets::init_thread();
+        let mut collector = widgets::Collector::default();
+        let mut last_read: Option<Instant> = None;
+
+        loop {
+            thread::sleep(WIDGET_POLL);
+
+            let state = app.state::<DockState>();
+            if !state.dock_on_screen.load(Ordering::Relaxed) {
+                last_read = None;
+                continue;
+            }
+            let stale = state.widgets_stale.swap(false, Ordering::Relaxed);
+            if !stale && last_read.is_some_and(|read| read.elapsed() < WIDGET_REFRESH) {
+                continue;
+            }
+
+            let wanted = state.widgets.lock().unwrap().clone();
+            let data = collector.collect(&wanted);
+            last_read = Some(Instant::now());
+
+            let mut current = state.widget_data.lock().unwrap();
+            if *current != data {
+                *current = data.clone();
+                let _ = app.emit("widgets-changed", data);
+            }
+        }
+    });
+}
+
 /// Background loop that does what the page cannot: a click-through window
 /// receives no mouse events, so the cursor has to be tracked from here.
 fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
@@ -274,6 +354,7 @@ fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
             }
 
             if !enabled {
+                state.dock_on_screen.store(false, Ordering::Relaxed);
                 if shown {
                     let _ = window.hide();
                     shown = false;
@@ -313,6 +394,7 @@ fn spawn_monitor(app: AppHandle, window: WebviewWindow) {
 
                 // A dock that is slid away must let every click through.
                 let on_screen = !auto_hide || auto_hide_state.revealed;
+                state.dock_on_screen.store(on_screen, Ordering::Relaxed);
                 let over = on_screen
                     && is_over_dock(cursor, area, layout, scale, hovering, auto_hide);
                 if over != hovering {
@@ -389,9 +471,11 @@ pub fn run() {
             if let Some(config) = config {
                 state.hide_taskbar.store(config.hide_taskbar, Ordering::Relaxed);
                 state.auto_hide.store(config.auto_hide, Ordering::Relaxed);
+                *state.widgets.lock().unwrap() = config.enabled_widgets();
             }
             build_tray(app.handle(), enabled)?;
             spawn_monitor(app.handle().clone(), window);
+            spawn_widget_poller(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -406,7 +490,13 @@ pub fn run() {
             open_start_menu,
             open_settings,
             open_config_file,
-            quit_app
+            quit_app,
+            open_quick_settings,
+            open_calendar,
+            open_task_manager,
+            get_widget_data,
+            set_volume,
+            media_action
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

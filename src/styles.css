@@ -10,11 +10,17 @@
   --label-text: #f4f4f5;
   --bottom-gap: 8px;
   --stage-align: center;
+  --widget-text: #f4f4f5;
+  --icon-size: 52px;
 
   font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
   font-size: 13px;
   color: var(--label-text);
   user-select: none;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -131,7 +137,203 @@ body {
   background: var(--dot-active);
 }
 
-.icon .label {
+#widgets {
+  flex: none;
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 8px;
+  margin-left: 6px;
+}
+
+#widgets:first-child {
+  margin-left: 0;
+}
+
+.capsule {
+  display: flex;
+  align-items: stretch;
+  padding: 0 5px;
+  border-radius: calc(var(--icon-size) * 0.32);
+  background: color-mix(in srgb, var(--widget-text) 10%, transparent);
+}
+
+.widget {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--widget-text);
+  font: inherit;
+  font-size: clamp(10px, calc(var(--icon-size) * 0.27), 16px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  cursor: pointer;
+  outline: none;
+}
+
+.no-bar .widget {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.no-bar .widget svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+button.widget:hover,
+.widget.media .controls button:hover {
+  background: color-mix(in srgb, var(--widget-text) 14%, transparent);
+}
+
+button.widget:focus-visible,
+.widget.media .controls button:focus-visible {
+  outline: 2px solid var(--dot-active);
+}
+
+.widget svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.widget svg .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.widget svg .dim {
+  opacity: 0.3;
+}
+
+.widget svg .bolt {
+  stroke: var(--bar-bg);
+  stroke-width: 1;
+}
+
+.widget .glyph {
+  flex: none;
+  width: calc(var(--icon-size) * 0.46);
+  height: calc(var(--icon-size) * 0.46);
+}
+
+.widget.volume,
+.widget.network,
+.widget.battery {
+  justify-content: center;
+  width: calc(var(--icon-size) * 0.77);
+  padding: 0;
+}
+
+.widget.text {
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.widget.clock {
+  align-items: flex-end;
+}
+
+/* A line sets text widgets apart from the icons next to them. */
+.capsule > .widget:not([hidden]) ~ .widget.text::before,
+.capsule > .widget.text:has(~ .widget:not([hidden]):not(.text))::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: calc(var(--icon-size) * 0.55);
+  width: 1px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--widget-text) 22%, transparent);
+}
+
+.capsule > .widget:not([hidden]) ~ .widget.text::before {
+  left: 0;
+}
+
+.capsule > .widget.text:has(~ .widget:not([hidden]):not(.text))::after {
+  right: 0;
+}
+
+.widget .main {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.widget .sub {
+  font-size: 0.85em;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.widget.system .main,
+.widget.system .sub {
+  min-width: 4.6em;
+  text-align: left;
+}
+
+.widget.media {
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  border-radius: calc(var(--icon-size) * 0.32);
+  background: color-mix(in srgb, var(--widget-text) 10%, transparent);
+  cursor: default;
+}
+
+.widget.media .cover {
+  flex: none;
+  width: calc(var(--icon-size) * 0.86);
+  height: calc(var(--icon-size) * 0.86);
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.widget.media .track {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: calc(var(--icon-size) * 2.1);
+  overflow: hidden;
+}
+
+.widget.media .track .main,
+.widget.media .track .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.widget.media .controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.widget.media .controls button {
+  width: calc(var(--icon-size) * 0.5);
+  height: calc(var(--icon-size) * 0.5);
+  padding: calc(var(--icon-size) * 0.11);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.widget .label {
+  bottom: calc(100% + 8px);
+}
+
+.icon .label,
+.widget .label {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 8px);
@@ -143,11 +345,16 @@ body {
   background: var(--label-bg);
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--label-text);
+  font-size: 13px;
+  font-weight: 400;
   pointer-events: none;
+  text-shadow: none;
   opacity: 0;
 }
 
-.icon:hover .label {
+.icon:hover .label,
+.widget:hover .label {
   opacity: 1;
 }
 

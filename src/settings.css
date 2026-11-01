@@ -288,6 +288,50 @@ input[type="color"] {
   cursor: default;
 }
 
+.widget-list {
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.widget-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.widget-list label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.widget-list .switch {
+  flex: none;
+}
+
+.widget-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.widget-list button {
+  flex: none;
+  width: 30px;
+  padding: 4px 0;
+}
+
+.widget-list button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

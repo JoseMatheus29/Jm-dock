@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { AppWindow, DockConfig, PRESETS, SavedTheme, Theme } from "./config";
+import {
+  AppWindow,
+  DockConfig,
+  PRESETS,
+  SavedTheme,
+  Theme,
+  WidgetId,
+} from "./config";
 
 type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 type Values = Record<string, string | number | boolean>;
@@ -13,6 +20,15 @@ const FORMATS: Record<string, (value: number) => string> = {
   percent: (value) => `${Math.round(value * 100)}%`,
   px: (value) => `${value}px`,
   times: (value) => `${value.toFixed(2)}×`,
+};
+
+const WIDGET_INFO: Record<WidgetId, { name: string; description: string }> = {
+  clock: { name: "Relógio", description: "Hora e data. Clique para abrir o calendário." },
+  volume: { name: "Volume", description: "Use a rodinha do mouse para ajustar. A porcentagem aparece ao passar o mouse." },
+  network: { name: "Rede", description: "Estado do Wi-Fi ou do cabo." },
+  battery: { name: "Bateria", description: "Só aparece em aparelhos com bateria." },
+  system: { name: "CPU e memória", description: "Clique para abrir o Gerenciador de Tarefas." },
+  media: { name: "Música", description: "O que está tocando, com os controles. Só aparece com mídia aberta." },
 };
 
 const form = document.querySelector<HTMLFormElement>("#form")!;
@@ -51,11 +67,16 @@ function showError(error: unknown) {
 }
 
 function target(control: Control): Values {
-  return (control.dataset.theme ? config.theme : config) as unknown as Values;
+  const owner = control.dataset.theme
+    ? config.theme
+    : control.dataset.clock
+      ? config.clock
+      : config;
+  return owner as unknown as Values;
 }
 
 function controlKey(control: Control): string {
-  return control.dataset.theme ?? control.dataset.key!;
+  return control.dataset.theme ?? control.dataset.clock ?? control.dataset.key!;
 }
 
 function showOutput(control: Control) {
@@ -66,7 +87,7 @@ function showOutput(control: Control) {
 
 function controls(): Control[] {
   return Array.from(
-    form.querySelectorAll<Control>("[data-key], [data-theme]"),
+    form.querySelectorAll<Control>("[data-key], [data-theme], [data-clock]"),
   );
 }
 
@@ -220,6 +241,52 @@ function renderApps() {
     config.apps.length > 0;
 }
 
+function moveWidget(index: number, offset: number) {
+  const [widget] = config.widgets.splice(index, 1);
+  config.widgets.splice(index + offset, 0, widget);
+  renderWidgets();
+  scheduleSave();
+}
+
+function renderWidgets() {
+  document.querySelector("#widgets")!.replaceChildren(
+    ...config.widgets.map((widget, index) => {
+      const { name, description } = WIDGET_INFO[widget.id];
+      const row = document.createElement("li");
+
+      const label = document.createElement("label");
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.className = "switch";
+      toggle.checked = widget.enabled;
+      toggle.addEventListener("input", () => {
+        widget.enabled = toggle.checked;
+        scheduleSave();
+      });
+      const text = document.createElement("span");
+      text.textContent = name;
+      const hint = document.createElement("small");
+      hint.textContent = description;
+      text.append(hint);
+      label.append(toggle, text);
+
+      row.append(
+        label,
+        appButton("↑", `Mover ${name} para a esquerda`, index === 0, () =>
+          moveWidget(index, -1),
+        ),
+        appButton(
+          "↓",
+          `Mover ${name} para a direita`,
+          index === config.widgets.length - 1,
+          () => moveWidget(index, 1),
+        ),
+      );
+      return row;
+    }),
+  );
+}
+
 function fileName(path: string): string {
   return path.slice(path.lastIndexOf("\\") + 1);
 }
@@ -334,6 +401,7 @@ try {
   bindEvents();
   refreshControls();
   renderApps();
+  renderWidgets();
   await refreshRunning();
   setInterval(() => refreshRunning().catch(showError), REFRESH_RUNNING_MS);
 

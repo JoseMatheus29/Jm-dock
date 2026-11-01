@@ -21,7 +21,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    SendInput, VK_LWIN,
+    SendInput, VIRTUAL_KEY, VK_A, VK_LWIN, VK_N,
 };
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
@@ -271,24 +271,39 @@ pub fn set_taskbar_visible(visible: bool) {
     }
 }
 
-/// Presses the Windows key, which opens the Start menu or closes it if open.
-pub fn open_start_menu() {
-    let key = |flags| INPUT {
+/// Presses the keys in order and releases them in reverse, like a shortcut.
+fn press_keys(keys: &[VIRTUAL_KEY]) {
+    let event = |key, flags| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VK_LWIN,
+                wVk: key,
                 dwFlags: flags,
                 ..Default::default()
             },
         },
     };
+    let down = keys.iter().map(|&key| event(key, KEYBD_EVENT_FLAGS(0)));
+    let up = keys.iter().rev().map(|&key| event(key, KEYEVENTF_KEYUP));
+    let inputs: Vec<INPUT> = down.chain(up).collect();
     unsafe {
-        SendInput(
-            &[key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)],
-            size_of::<INPUT>() as i32,
-        );
+        SendInput(&inputs, size_of::<INPUT>() as i32);
     }
+}
+
+/// The Windows key opens the Start menu, or closes it if open.
+pub fn open_start_menu() {
+    press_keys(&[VK_LWIN]);
+}
+
+/// Win+A: the Wi-Fi, volume and battery panel.
+pub fn open_quick_settings() {
+    press_keys(&[VK_LWIN, VK_A]);
+}
+
+/// Win+N: notifications and the calendar.
+pub fn open_calendar() {
+    press_keys(&[VK_LWIN, VK_N]);
 }
 
 pub fn minimize_window(hwnd: isize) {

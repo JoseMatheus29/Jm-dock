@@ -1,6 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { applyAppearance, AppWindow, DockConfig, PRESETS } from "./config";
+import {
+  applyAppearance,
+  AppWindow,
+  DockConfig,
+  PRESETS,
+  WidgetData,
+} from "./config";
+import { WidgetBar } from "./widgets";
 
 interface DockItem {
   key: string;
@@ -20,6 +27,9 @@ const dock = document.querySelector<HTMLElement>("#dock")!;
 const errorEl = document.querySelector<HTMLElement>("#error")!;
 const separator = document.createElement("div");
 separator.className = "separator";
+const widgetBar = new WidgetBar(showError, () => {
+  widgetBar.element.hidden = !widgetBar.hasVisibleWidgets();
+});
 
 let config: DockConfig = {
   enabled: true,
@@ -34,6 +44,8 @@ let config: DockConfig = {
   savedThemes: [],
   customCss: "",
   apps: [],
+  widgets: [],
+  clock: { showSeconds: false, showDate: true, hour12: false },
 };
 let windows: AppWindow[] = [];
 /** Open apps that are not pinned, in order of appearance so they never reshuffle. */
@@ -185,6 +197,7 @@ function render() {
     button.querySelector(".label")!.textContent = item.label;
     wanted.push(button);
   });
+  wanted.push(widgetBar.element);
 
   const current = Array.from(dock.children);
   const changed =
@@ -276,6 +289,7 @@ function applyConfig(next: DockConfig) {
     showError(error);
   }
   render();
+  widgetBar.applyConfig(config);
   measure();
 }
 
@@ -290,19 +304,26 @@ document.addEventListener("contextmenu", (event) => {
   invoke("open_settings").catch(showError);
 });
 window.addEventListener("resize", measure);
+// A widget changing width moves the icons, whose positions Rust and magnify rely on.
+new ResizeObserver(measure).observe(widgetBar.element);
 
-listen<boolean>("dock-hover", ({ payload: hovering }) => {
-  if (!hovering) settle();
-});
-listen<boolean>("dock-reveal", ({ payload }) => {
-  revealed = payload;
-  updateSlide();
-});
-listen<AppWindow[]>("windows-changed", ({ payload }) => {
-  windows = payload;
-  render();
-});
-listen<DockConfig>("config-changed", ({ payload }) => applyConfig(payload));
+await Promise.all([
+  listen<boolean>("dock-hover", ({ payload: hovering }) => {
+    if (!hovering) settle();
+  }),
+  listen<boolean>("dock-reveal", ({ payload }) => {
+    revealed = payload;
+    updateSlide();
+  }),
+  listen<AppWindow[]>("windows-changed", ({ payload }) => {
+    windows = payload;
+    render();
+  }),
+  listen<DockConfig>("config-changed", ({ payload }) => applyConfig(payload)),
+  listen<WidgetData>("widgets-changed", ({ payload }) =>
+    widgetBar.update(payload),
+  ),
+]);
 
 windows = await invoke<AppWindow[]>("get_windows");
 try {
@@ -311,3 +332,4 @@ try {
   applyConfig(config);
   showError(error);
 }
+widgetBar.update(await invoke<WidgetData>("get_widget_data"));

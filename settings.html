@@ -85,6 +85,10 @@
               <input type="color" data-theme="labelColor" />
               <span>Texto do nome</span>
             </label>
+            <label>
+              <input type="color" data-theme="widgetColor" />
+              <span>Widgets</span>
+            </label>
           </div>
           <label class="slider">
             <span>Opacidade da barra</span>
@@ -148,6 +152,25 @@
           <h3>Fixar um app aberto</h3>
           <div id="running" class="chips"></div>
           <p id="running-empty" class="hint">Todos os apps abertos já estão fixados.</p>
+        </section>
+
+        <section>
+          <h2>Widgets</h2>
+          <p class="hint">Escolha o que aparece na dock e em que ordem.</p>
+          <ul id="widgets" class="widget-list"></ul>
+          <h3>Relógio</h3>
+          <label class="row">
+            <span>Mostrar a data</span>
+            <input type="checkbox" class="switch" data-clock="showDate" />
+          </label>
+          <label class="row">
+            <span>Mostrar os segundos</span>
+            <input type="checkbox" class="switch" data-clock="showSeconds" />
+          </label>
+          <label class="row">
+            <span>Formato de 12 horas</span>
+            <input type="checkbox" class="switch" data-clock="hour12" />
+          </label>
         </section>
 
         <section>

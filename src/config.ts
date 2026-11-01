@@ -10,6 +10,7 @@ export interface Theme {
   activeColor: string;
   labelBackground: string;
   labelColor: string;
+  widgetColor: string;
 }
 
 export interface SavedTheme {
@@ -37,6 +38,40 @@ export interface DockConfig {
   savedThemes: SavedTheme[];
   customCss: string;
   apps: PinnedApp[];
+  widgets: WidgetSetting[];
+  clock: ClockOptions;
+}
+
+export type WidgetId =
+  | "media"
+  | "system"
+  | "network"
+  | "volume"
+  | "battery"
+  | "clock";
+
+export interface WidgetSetting {
+  id: WidgetId;
+  enabled: boolean;
+}
+
+export interface ClockOptions {
+  showSeconds: boolean;
+  showDate: boolean;
+  hour12: boolean;
+}
+
+export interface WidgetData {
+  volume: { level: number; muted: boolean } | null;
+  network: { kind: "wifi" | "wired" | "offline"; bars: number; name: string } | null;
+  battery: { percent: number; charging: boolean } | null;
+  system: { cpu: number; memory: number } | null;
+  media: {
+    title: string;
+    artist: string;
+    playing: boolean;
+    thumbnail: string | null;
+  } | null;
 }
 
 export interface AppWindow {
@@ -61,6 +96,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#6ee7f9",
       labelBackground: "#18181c",
       labelColor: "#f4f4f5",
+      widgetColor: "#f4f4f5",
     },
   },
   {
@@ -77,6 +113,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#2563eb",
       labelBackground: "#f5f6fa",
       labelColor: "#18181b",
+      widgetColor: "#18181b",
     },
   },
   {
@@ -93,6 +130,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#ffd166",
       labelBackground: "#0b1533",
       labelColor: "#e6ebff",
+      widgetColor: "#e6ebff",
     },
   },
   {
@@ -109,6 +147,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#a3e635",
       labelBackground: "#10302b",
       labelColor: "#ecfdf5",
+      widgetColor: "#ecfdf5",
     },
   },
   {
@@ -125,6 +164,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#fb7185",
       labelBackground: "#3a1526",
       labelColor: "#fff1f5",
+      widgetColor: "#fff1f5",
     },
   },
   {
@@ -141,6 +181,7 @@ export const PRESETS: SavedTheme[] = [
       activeColor: "#ffffff",
       labelBackground: "#000000",
       labelColor: "#ffffff",
+      widgetColor: "#ffffff",
     },
   },
 ];
@@ -171,6 +212,10 @@ export function applyAppearance(config: DockConfig) {
   root.setProperty("--dot-active", theme.activeColor);
   root.setProperty("--label-bg", theme.labelBackground);
   root.setProperty("--label-text", theme.labelColor);
+  root.setProperty("--widget-text", theme.widgetColor);
+  root.setProperty("--icon-size", `${config.iconSize}px`);
+  // Without a visible bar, text sits straight on whatever is behind the dock.
+  document.documentElement.classList.toggle("no-bar", theme.barOpacity < 0.25);
   root.setProperty("--bottom-gap", `${config.bottomGap}px`);
   root.setProperty(
     "--stage-align",

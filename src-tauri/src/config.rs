@@ -19,6 +19,54 @@ pub struct DockConfig {
     pub saved_themes: Vec<SavedTheme>,
     pub custom_css: String,
     pub apps: Vec<PinnedApp>,
+    pub widgets: Vec<WidgetSetting>,
+    pub clock: ClockOptions,
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WidgetId {
+    Media,
+    System,
+    Network,
+    Volume,
+    Battery,
+    Clock,
+}
+
+impl WidgetId {
+    const ALL: [WidgetId; 6] = [
+        WidgetId::Media,
+        WidgetId::System,
+        WidgetId::Network,
+        WidgetId::Volume,
+        WidgetId::Battery,
+        WidgetId::Clock,
+    ];
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WidgetSetting {
+    pub id: WidgetId,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClockOptions {
+    pub show_seconds: bool,
+    pub show_date: bool,
+    pub hour12: bool,
+}
+
+impl Default for ClockOptions {
+    fn default() -> Self {
+        Self {
+            show_seconds: false,
+            show_date: true,
+            hour12: false,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -35,6 +83,7 @@ pub struct Theme {
     pub active_color: String,
     pub label_background: String,
     pub label_color: String,
+    pub widget_color: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -64,6 +113,8 @@ impl Default for DockConfig {
             saved_themes: Vec::new(),
             custom_css: String::new(),
             apps: default_apps(),
+            widgets: default_widgets(),
+            clock: ClockOptions::default(),
         }
     }
 }
@@ -82,6 +133,7 @@ impl Default for Theme {
             active_color: "#6ee7f9".into(),
             label_background: "#18181c".into(),
             label_color: "#f4f4f5".into(),
+            widget_color: "#f4f4f5".into(),
         }
     }
 }
@@ -97,7 +149,40 @@ impl DockConfig {
         self.theme.radius = self.theme.radius.clamp(0.0, 64.0);
         self.theme.padding = self.theme.padding.clamp(0.0, 32.0);
         self.theme.gap = self.theme.gap.clamp(0.0, 32.0);
+
+        // A hand-edited list may repeat widgets or miss ones added by an update.
+        let mut widgets: Vec<WidgetSetting> = Vec::new();
+        for widget in self.widgets.drain(..) {
+            if !widgets.iter().any(|known| known.id == widget.id) {
+                widgets.push(widget);
+            }
+        }
+        for id in WidgetId::ALL {
+            if !widgets.iter().any(|known| known.id == id) {
+                widgets.push(WidgetSetting { id, enabled: false });
+            }
+        }
+        self.widgets = widgets;
     }
+
+    pub fn enabled_widgets(&self) -> Vec<WidgetId> {
+        self.widgets
+            .iter()
+            .filter(|widget| widget.enabled)
+            .map(|widget| widget.id)
+            .collect()
+    }
+}
+
+fn default_widgets() -> Vec<WidgetSetting> {
+    let enabled = [WidgetId::Network, WidgetId::Volume, WidgetId::Clock];
+    WidgetId::ALL
+        .into_iter()
+        .map(|id| WidgetSetting {
+            id,
+            enabled: enabled.contains(&id),
+        })
+        .collect()
 }
 
 fn default_apps() -> Vec<PinnedApp> {
