@@ -1,14 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { barBackground, PRESETS } from "./appearance";
+import { barBackground, patternImage, PRESETS, withAlpha } from "./appearance";
 import { AppWindow, DockConfig, SavedTheme, Theme, WidgetId } from "./config";
+import { settingsPalette } from "./settings-palette";
+import { batteryIcon, ICONS, wifiIcon } from "./widgets";
 
 type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 type Values = Record<string, string | number | boolean>;
 
 const SAVE_DELAY_MS = 120;
 const REFRESH_RUNNING_MS = 2000;
+const PAGE_STORAGE_KEY = "settings-page";
+const DEFAULT_PAGE = "themes";
+const PREVIEW_APPS = 5;
+const PREVIEW_MARGIN = 20;
+const START_LOGO = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.500v8.500H3zM12.500 3H21v8.500h-8.500zM3 12.500h8.500V21H3zM12.500 12.500H21V21h-8.500z"/></svg>`;
 
 const FORMATS: Record<string, (value: number) => string> = {
   percent: (value) => `${Math.round(value * 100)}%`,
@@ -18,21 +25,26 @@ const FORMATS: Record<string, (value: number) => string> = {
 };
 
 const WIDGET_INFO: Record<WidgetId, { name: string; description: string }> = {
-  clock: { name: "Relógio", description: "Hora e data. Clique para abrir o calendário." },
-  volume: { name: "Volume", description: "Use a rodinha do mouse para ajustar. A porcentagem aparece ao passar o mouse." },
-  network: { name: "Rede", description: "Estado do Wi-Fi ou do cabo." },
-  battery: { name: "Bateria", description: "Só aparece em aparelhos com bateria." },
-  system: { name: "CPU e memória", description: "Clique para abrir o Gerenciador de Tarefas." },
-  media: { name: "Música", description: "O que está tocando, com os controles. Só aparece com mídia aberta." },
+  clock: { name: "Relógio", description: "Clique abre o calendário" },
+  volume: { name: "Volume", description: "Ajuste com a rodinha do mouse" },
+  network: { name: "Rede", description: "Wi-Fi ou cabo" },
+  battery: { name: "Bateria", description: "Em aparelhos com bateria" },
+  system: { name: "CPU e memória", description: "Clique abre o Gerenciador de Tarefas" },
+  media: { name: "Música", description: "Aparece com mídia aberta" },
 };
 
 const form = document.querySelector<HTMLFormElement>("#form")!;
 const appsEl = document.querySelector<HTMLUListElement>("#apps")!;
 const runningEl = document.querySelector<HTMLElement>("#running")!;
 const themeName = document.querySelector<HTMLInputElement>("#theme-name")!;
+const stage = document.querySelector<HTMLElement>("#stage")!;
+const preview = document.querySelector<HTMLElement>("#preview")!;
 
 let config: DockConfig;
 let saveTimer: number | undefined;
+let runningExes: string[] = [];
+let previewContent = "";
+let windowColors = "";
 const icons = new Map<string, Promise<string | null>>();
 
 function iconFor(path: string): Promise<string | null> {
@@ -78,6 +90,11 @@ function showOutput(control: Control) {
   const output = control.parentElement?.querySelector("output");
   const format = FORMATS[control.dataset.format ?? ""];
   if (output && format) output.textContent = format(Number(control.value));
+  if (control instanceof HTMLInputElement && control.type === "range") {
+    const span = Number(control.max) - Number(control.min);
+    const filled = ((Number(control.value) - Number(control.min)) / span) * 100;
+    control.style.setProperty("--fill", `${filled}%`);
+  }
 }
 
 function controls(): Control[] {
@@ -91,12 +108,179 @@ function refreshControls() {
     const value = target(control)[controlKey(control)];
     if (control instanceof HTMLInputElement && control.type === "checkbox") {
       control.checked = Boolean(value);
+    } else if (control instanceof HTMLInputElement && control.type === "radio") {
+      control.checked = control.value === String(value);
     } else {
       control.value = String(value);
     }
     showOutput(control);
   }
   renderThemes();
+  refreshLook();
+}
+
+/** Keeps the window's colors, the preview and the optional controls in step. */
+function refreshLook() {
+  applyPalette();
+  refreshOptionalControls();
+  document.querySelector<HTMLElement>("#monitor")!.dataset.align = config.alignment;
+  renderPreview();
+}
+
+function applyPalette() {
+  const palette = settingsPalette(config.theme);
+  const root = document.documentElement;
+  for (const [name, value] of Object.entries(palette.variables)) {
+    root.style.setProperty(name, value);
+  }
+  root.style.colorScheme = palette.dark ? "dark" : "light";
+
+  const colors = `${palette.background}|${palette.text}|${palette.dark}`;
+  if (colors !== windowColors) {
+    windowColors = colors;
+    invoke("set_settings_colors", {
+      caption: palette.background,
+      text: palette.text,
+      dark: palette.dark,
+    }).catch(showError);
+  }
+
+  for (const input of document.querySelectorAll<HTMLInputElement>(".tiles input")) {
+    const tile = input.nextElementSibling as HTMLElement;
+    const image = patternImage(input.value, palette.text);
+    tile.style.backgroundImage = image ?? "none";
+    tile.style.backgroundSize = "20px";
+  }
+}
+
+/** Settings that only matter once another one is turned on stay out of the way. */
+function refreshOptionalControls() {
+  const values = { ...config, ...config.theme } as unknown as Values;
+  const off = new Set(["none", "off"]);
+  for (const element of document.querySelectorAll<HTMLElement>("[data-show-when]")) {
+    const value = values[element.dataset.showWhen!];
+    element.hidden = !value || off.has(String(value));
+  }
+}
+
+function clockText(): string {
+  const { showDate, showSeconds, hour12 } = config.clock;
+  const now = new Date();
+  const time = now.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: showSeconds ? "2-digit" : undefined,
+    hour12,
+  });
+  if (!showDate) return time;
+  const date = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${time} · ${date}`;
+}
+
+function previewWidget(id: WidgetId): string {
+  switch (id) {
+    case "clock":
+      return `<span>${clockText()}</span>`;
+    case "volume":
+      return ICONS.speaker;
+    case "network":
+      return wifiIcon(5);
+    case "battery":
+      return batteryIcon(80, false);
+    case "system":
+      return `<span>CPU • RAM</span>`;
+    case "media":
+      return ICONS.play;
+  }
+}
+
+function previewTile(className: string, path?: string): HTMLElement {
+  const tile = document.createElement("div");
+  tile.className = `tile ${className}`;
+  if (path) tile.append(iconImage(path));
+  else tile.innerHTML = START_LOGO;
+  return tile;
+}
+
+function renderPreviewContent() {
+  const paths = [
+    ...new Set([...config.apps.map((app) => app.path), ...runningExes]),
+  ].slice(0, PREVIEW_APPS);
+  const widgets = config.widgets
+    .filter((widget) => widget.enabled)
+    .map((widget) => previewWidget(widget.id));
+
+  const content = [config.showStartButton, paths, widgets].join("|");
+  if (content === previewContent) return;
+  previewContent = content;
+
+  const items: HTMLElement[] = paths.map((path, index) =>
+    previewTile(index === 0 ? "open focused" : "open", path),
+  );
+  if (config.showStartButton) items.unshift(previewTile("start"));
+  if (widgets.length > 0) {
+    const capsule = document.createElement("div");
+    capsule.className = "capsule";
+    capsule.innerHTML = widgets.join("");
+    items.push(capsule);
+  }
+  preview.replaceChildren(...items);
+}
+
+function fitPreview() {
+  preview.style.transform = "";
+  const scale = Math.min(
+    1,
+    (stage.clientWidth - PREVIEW_MARGIN) / preview.offsetWidth,
+    (stage.clientHeight - PREVIEW_MARGIN) / preview.offsetHeight,
+  );
+  if (scale < 1) preview.style.transform = `scale(${scale})`;
+}
+
+function renderPreview() {
+  const { theme } = config;
+  const { style } = preview;
+  style.background = barBackground(theme);
+  style.borderColor = withAlpha(theme.borderColor, theme.borderOpacity);
+  style.borderWidth = `${theme.borderWidth}px`;
+  style.borderRadius = `${theme.radius}px`;
+  style.padding = `${theme.padding}px`;
+  style.gap = `${theme.gap}px`;
+  style.boxShadow = `0 0 ${theme.glowSize}px ${theme.glowSize > 0 ? theme.glowColor : "transparent"}`;
+  style.fontFamily = `"${theme.font}", "Segoe UI", sans-serif`;
+  style.color = theme.widgetColor;
+  style.setProperty("--icon-size", `${config.iconSize}px`);
+  style.setProperty("--dot", theme.dotColor);
+  style.setProperty("--dot-active", theme.activeColor);
+  preview.classList.toggle("no-bar", theme.barOpacity < 0.25 && !theme.barImage);
+  renderPreviewContent();
+  fitPreview();
+}
+
+function showPage(name: string) {
+  const known = document.querySelector(`.page[data-page="${name}"]`) !== null;
+  const page = known ? name : DEFAULT_PAGE;
+  for (const section of document.querySelectorAll<HTMLElement>(".page")) {
+    section.hidden = section.dataset.page !== page;
+  }
+  for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
+    if (button.dataset.nav === page) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  document.querySelector("#pages")!.scrollTop = 0;
+  try {
+    localStorage.setItem(PAGE_STORAGE_KEY, page);
+  } catch {
+    // Only a convenience: the window opens on the first page next time.
+  }
+}
+
+function savedPage(): string {
+  try {
+    return localStorage.getItem(PAGE_STORAGE_KEY) ?? DEFAULT_PAGE;
+  } catch {
+    return DEFAULT_PAGE;
+  }
 }
 
 function readControl(control: Control): string | number | boolean {
@@ -121,12 +305,13 @@ function themeCard(saved: SavedTheme, onRemove?: () => void): HTMLElement {
   const pick = document.createElement("button");
   pick.type = "button";
   pick.className = "pick";
+  const scene = document.createElement("div");
+  scene.className = "scene";
   const swatch = document.createElement("div");
   swatch.className = "swatch";
   swatch.style.background = barBackground(theme);
-  swatch.style.borderColor =
-    theme.borderOpacity > 0 ? theme.borderColor : "var(--line)";
-  swatch.style.borderRadius = `${Math.min(theme.radius, 14)}px`;
+  swatch.style.borderColor = withAlpha(theme.borderColor, theme.borderOpacity);
+  swatch.style.borderRadius = `${Math.min(theme.radius, 12)}px`;
   for (const color of [theme.dotColor, theme.activeColor, theme.labelColor]) {
     const dot = document.createElement("i");
     dot.style.background = color;
@@ -134,7 +319,8 @@ function themeCard(saved: SavedTheme, onRemove?: () => void): HTMLElement {
   }
   const label = document.createElement("span");
   label.textContent = name;
-  pick.append(swatch, label);
+  scene.append(swatch);
+  pick.append(scene, label);
   pick.addEventListener("click", () => {
     config.theme = { ...theme };
     refreshControls();
@@ -234,6 +420,7 @@ function renderApps() {
   );
   document.querySelector<HTMLElement>("#apps-empty")!.hidden =
     config.apps.length > 0;
+  renderPreview();
 }
 
 function moveWidget(index: number, offset: number) {
@@ -256,6 +443,7 @@ function renderWidgets() {
       toggle.checked = widget.enabled;
       toggle.addEventListener("input", () => {
         widget.enabled = toggle.checked;
+        renderPreview();
         scheduleSave();
       });
       const text = document.createElement("span");
@@ -280,6 +468,7 @@ function renderWidgets() {
       return row;
     }),
   );
+  renderPreview();
 }
 
 function fileName(path: string): string {
@@ -330,6 +519,8 @@ async function refreshRunning() {
   }
   document.querySelector<HTMLElement>("#running-empty")!.hidden =
     available.length > 0;
+  runningExes = next;
+  renderPreview();
 }
 
 function bindEvents() {
@@ -339,9 +530,15 @@ function bindEvents() {
       target(control)[controlKey(control)] = readControl(control);
       showOutput(control);
       if (control.dataset.theme) renderThemes();
+      refreshLook();
       scheduleSave();
     });
   }
+
+  for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
+    button.addEventListener("click", () => showPage(button.dataset.nav!));
+  }
+  window.addEventListener("resize", fitPreview);
 
   document.querySelector("#save-theme")!.addEventListener("click", () => {
     const name = themeName.value.trim();
@@ -391,6 +588,7 @@ function bindEvents() {
     try {
       config.theme.barImage = await invoke<string>("load_bar_image", { path });
       renderThemes();
+      refreshLook();
       scheduleSave();
     } catch (error) {
       showError(error);
@@ -400,6 +598,7 @@ function bindEvents() {
   document.querySelector("#remove-image")!.addEventListener("click", () => {
     config.theme.barImage = "";
     renderThemes();
+    refreshLook();
     scheduleSave();
   });
 
@@ -417,6 +616,7 @@ function bindEvents() {
 try {
   config = await invoke<DockConfig>("get_config");
   bindEvents();
+  showPage(savedPage());
   refreshControls();
   renderApps();
   renderWidgets();

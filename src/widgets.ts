@@ -9,7 +9,7 @@ const MAX_BARS = 5;
 const svg = (body: string) =>
   `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
 
-const ICONS = {
+export const ICONS = {
   speaker: svg(
     `<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path class="line" d="M15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/>`,
   ),
@@ -28,7 +28,7 @@ const ICONS = {
   previous: svg(`<path d="M19 5v14L9 12zM5 5h3v14H5z"/>`),
 };
 
-function wifiIcon(bars: number): string {
+export function wifiIcon(bars: number): string {
   // Arcs light up from the inside out as the signal gets stronger.
   const arcs = [
     "M9 16a4.500 4.500 0 0 1 6 0",
@@ -45,7 +45,7 @@ function wifiIcon(bars: number): string {
   return svg(`${paths}<circle cx="12" cy="19.500" r="1.500"/>`);
 }
 
-function batteryIcon(percent: number, charging: boolean): string {
+export function batteryIcon(percent: number, charging: boolean): string {
   const fill = Math.max(1, Math.round((percent / 100) * 13));
   const bolt = charging ? `<path class="bolt" d="M11.500 7 8 12.500h3L10 17l4-6h-3z"/>` : "";
   return svg(

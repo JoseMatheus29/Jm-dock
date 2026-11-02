@@ -34,6 +34,7 @@ As mudanças valem na hora e ficam salvas em `%APPDATA%\com.jmatheus.dockjm\dock
 - `src/widgets.ts`: widgets dentro da dock.
 - `src-tauri/src/widgets.rs`: dados de volume, rede, bateria, CPU, memória e música.
 - `src/settings.ts`, `src/settings.css`, `settings.html`: tela de personalização.
+- `src/settings-palette.ts`: cores da tela de personalização, calculadas a partir do tema da barra.
 - `src/config.ts`: tipos da configuração.
 - `src/appearance.ts`: temas prontos, padrões e aplicação do visual na dock.
 - `src-tauri/src/lib.rs`: janelas, bandeja e monitoramento do cursor e das janelas.

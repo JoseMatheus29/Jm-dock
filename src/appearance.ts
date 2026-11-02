@@ -241,13 +241,20 @@ export function withAlpha(color: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function patternLayer(theme: Theme): string | null {
-  const tile = PATTERNS[theme.pattern];
+/** A pattern as a CSS image, or null when it doesn't draw anything. */
+export function patternImage(pattern: string, color: string): string | null {
+  const tile = PATTERNS[pattern];
   if (!tile) return null;
-  const color = withAlpha(theme.patternColor, theme.patternOpacity);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${tile.split("{c}").join(color)}</svg>`;
-  const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-  return `url("${url}") 0 0 / ${theme.patternSize}px ${theme.patternSize}px`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+function patternLayer(theme: Theme): string | null {
+  const image = patternImage(
+    theme.pattern,
+    withAlpha(theme.patternColor, theme.patternOpacity),
+  );
+  return image && `${image} 0 0 / ${theme.patternSize}px ${theme.patternSize}px`;
 }
 
 /** The bar's CSS background: pattern on top of the color, on top of any picture. */

@@ -148,6 +148,16 @@ fn open_settings(app: AppHandle) {
     request_settings(&app);
 }
 
+/// Paints the settings window's title bar to match its theme.
+#[tauri::command]
+fn set_settings_colors(app: AppHandle, caption: String, text: String, dark: bool) {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW)
+        && let Ok(hwnd) = window.hwnd()
+    {
+        win::set_title_bar_colors(hwnd.0 as isize, &caption, &text, dark);
+    }
+}
+
 #[tauri::command]
 fn open_quick_settings() {
     win::open_quick_settings();
@@ -242,8 +252,8 @@ fn request_settings(app: &AppHandle) {
                     WebviewUrl::App("settings.html".into()),
                 )
                 .title("Personalizar Dock JM")
-                .inner_size(620.0, 780.0)
-                .min_inner_size(520.0, 480.0)
+                .inner_size(980.0, 680.0)
+                .min_inner_size(780.0, 540.0)
                 .center()
                 .build();
                 let Ok(window) = built else {
@@ -611,6 +621,7 @@ pub fn run() {
             minimize_window,
             open_start_menu,
             open_settings,
+            set_settings_colors,
             open_config_file,
             quit_app,
             open_quick_settings,

@@ -10,7 +10,10 @@ use serde::Serialize;
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE,
 };
-use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+use windows::Win32::Graphics::Dwm::{
+    DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_CLOAKED, DWMWA_TEXT_COLOR,
+    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWINDOWATTRIBUTE, DwmGetWindowAttribute, DwmSetWindowAttribute,
+};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
     DeleteObject, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HGDIOBJ,
@@ -97,6 +100,33 @@ pub fn work_area() -> Option<RECT> {
 /// Keeps the dock out of Alt+Tab and toggles whether clicks pass through it.
 /// Tauri's own toggle rewrites the whole extended style, which would undo the
 /// tool window flag, so the style is managed here instead.
+/// Turns "#rrggbb" into the 0x00BBGGRR layout Win32 expects.
+fn colorref(color: &str) -> Option<u32> {
+    let rgb = u32::from_str_radix(color.strip_prefix('#')?, 16).ok()?;
+    Some((rgb & 0xff) << 16 | (rgb & 0xff00) | (rgb >> 16) & 0xff)
+}
+
+/// Windows 10 ignores the caption colors and only applies the dark mode.
+pub fn set_title_bar_colors(hwnd: isize, caption: &str, text: &str, dark: bool) {
+    let window = to_hwnd(hwnd);
+    let set = |attribute: DWMWINDOWATTRIBUTE, value: u32| unsafe {
+        let _ = DwmSetWindowAttribute(
+            window,
+            attribute,
+            &value as *const u32 as *const c_void,
+            size_of::<u32>() as u32,
+        );
+    };
+    set(DWMWA_USE_IMMERSIVE_DARK_MODE, dark as u32);
+    if let Some(color) = colorref(caption) {
+        set(DWMWA_CAPTION_COLOR, color);
+        set(DWMWA_BORDER_COLOR, color);
+    }
+    if let Some(color) = colorref(text) {
+        set(DWMWA_TEXT_COLOR, color);
+    }
+}
+
 pub fn set_dock_style(hwnd: isize, click_through: bool) {
     let hwnd = to_hwnd(hwnd);
     let pass_through = WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0;
